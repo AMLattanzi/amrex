@@ -80,9 +80,9 @@ AmrCore::InitAmrCore ()
 }
 
 void
-AmrCore::InitFromScratch (Real time)
+AmrCore::InitFromScratch (Real time, int NProcOnBlock)
 {
-    MakeNewGrids(time);
+  MakeNewGrids(time,NProcOnBlock);
 }
 
 void

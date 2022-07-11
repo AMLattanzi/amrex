@@ -58,7 +58,8 @@ public:
      * to allocate and initialize data.
      * Also note usually one needs to average the fine data down to coarse level after this.
      */
-    void InitFromScratch (Real time);
+    void InitFromScratch (Real time, int NProcOnBlock=ParallelDescriptor::NProcs());
+
 
     //! Rebuild levels finer than lbase
     virtual void regrid (int lbase, Real time, bool initial=false);

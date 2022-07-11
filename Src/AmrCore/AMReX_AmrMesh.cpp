@@ -464,7 +464,7 @@ AmrMesh::ChopGrids (int lev, BoxArray& ba, int target_size) const
 }
 
 BoxArray
-AmrMesh::MakeBaseGrids () const
+AmrMesh::MakeBaseGrids (int NProcOnBlock) const
 {
     IntVect fac(2);
     const Box& dom = geom[0].Domain();
@@ -480,7 +480,7 @@ AmrMesh::MakeBaseGrids () const
     // Boxes in ba have even number of cells in each direction
     // unless the domain has odd number of cells in that direction.
     if (refine_grid_layout) {
-        ChopGrids(0, ba, ParallelDescriptor::NProcs());
+        ChopGrids(0, ba, NProcOnBlock);
     }
     if (ba == grids[0]) {
         ba = grids[0];  // to avoid duplicates
@@ -765,13 +765,13 @@ AmrMesh::MakeNewGrids (int lbase, Real time, int& new_finest, Vector<BoxArray>& 
 }
 
 void
-AmrMesh::MakeNewGrids (Real time)
+AmrMesh::MakeNewGrids (Real time, int NProcOnBlock)
 {
     // define coarse level BoxArray and DistributionMap
     {
         finest_level = 0;
 
-        const BoxArray& ba = MakeBaseGrids();
+        const BoxArray& ba = MakeBaseGrids(NProcOnBlock);
         DistributionMapping dm(ba);
         const auto old_num_setdm = num_setdm;
         const auto old_num_setba = num_setba;

@@ -209,7 +209,7 @@ public:
     void ChopGrids (int lev, BoxArray& ba, int target_size) const;
 
     //! Make a level 0 grids covering the whole domain.  It does NOT install the new grids.
-    BoxArray MakeBaseGrids () const;
+    BoxArray MakeBaseGrids (int NProcOnBlock=ParallelDescriptor::NProcs()) const;
 
     /**
     * \brief Make new grids based on error estimates.  This function
@@ -228,7 +228,7 @@ public:
     void MakeNewGrids (int lbase, Real time, int& new_finest, Vector<BoxArray>& new_grids);
 
     //! This function makes new grid for all levels (including level 0).
-    void MakeNewGrids (Real time = 0.0);
+    void MakeNewGrids (Real time = 0.0, int NProcOnBlock=ParallelDescriptor::NProcs());
 
     //! This function is called by the second version of MakeNewGrids.
     //! Make a new level from scratch using provided BoxArray and DistributionMapping.
