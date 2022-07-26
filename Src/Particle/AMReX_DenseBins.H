@@ -465,6 +465,117 @@ public:
         }
     }
 
+// AML
+//=================================================================================================================
+//
+    template <typename N, typename F>
+    void buildPoly (N nitems, T const* v, const Box& bx, F&& f)
+    {
+        buildPoly(BinPolicy::Default, nitems, v, bx, std::forward<F>(f));
+    }
+    template <typename N, typename F>
+    void buildPoly (N nitems, T const* v, int nbins, F&& f)
+    {
+        buildPoly(BinPolicy::Default, nitems, v, nbins, std::forward<F>(f));
+    }
+    
+    template <typename N, typename F>
+    void buildPoly (BinPolicy::OpenMPBinPolicy, N nitems, T const* v, const Box& bx, F&& f)
+    {
+        const auto lo = lbound(bx);
+        const auto hi = ubound(bx);
+        buildPoly(BinPolicy::OpenMP, nitems, v, bx.numPts(),
+                 [=] (const T& t) noexcept
+                 {
+                     auto iv = f(t);
+                     auto iv3 = iv.dim3();
+                     int nx = hi.x-lo.x+1;
+                     int ny = hi.y-lo.y+1;
+                     int nz = hi.z-lo.z+1;
+                     index_type uix = amrex::min(nx-1,amrex::max(0,iv3.x));
+                     index_type uiy = amrex::min(ny-1,amrex::max(0,iv3.y));
+                     index_type uiz = amrex::min(nz-1,amrex::max(0,iv3.z));
+                     return (uix * ny + uiy) * nz + uiz;
+                 });
+    }
+
+    template <typename N, typename F>
+    void buildPoly (BinPolicy::OpenMPBinPolicy, N nitems, T const* v, int nbins, F&& f)
+    {   
+        BL_PROFILE("DenseBins<T>::buildOpenMP");
+
+        m_items = v;
+
+        m_bins.resize(nitems);
+        m_perm.resize(nitems);
+
+        int nchunks = OpenMP::get_max_threads();
+        int chunksize = nitems / nchunks;
+        auto counts = (index_type*)(The_Arena()->alloc(nchunks*nbins*sizeof(index_type)));
+        for (int i = 0; i < nbins*nchunks; ++i) { counts[i] = 0;}
+
+        m_counts.resize(0);
+        m_counts.resize(nbins+1, 0);
+
+        m_offsets.resize(0);
+        m_offsets.resize(nbins+1);
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel for
+#endif
+        for (int j = 0; j < nchunks; ++j) {
+            int istart = j*chunksize;
+            int istop = (j == nchunks-1) ? nitems : (j+1)*chunksize;
+            for (int i = istart; i < istop; ++i) {
+                m_bins[i] = f(v[i]);
+                ++counts[nbins*j+m_bins[i]];
+            }
+        }
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel for
+#endif
+        for (int i = 0; i < nbins; ++i) {
+            index_type total = 0;
+            for (int j = 0; j < nchunks; ++j) {
+                auto tmp = counts[nbins*j+i];
+                counts[nbins*j+i] = total;
+                total += tmp;
+            }
+            m_counts[i] = total;
+        }
+
+        // note - this part has to be serial
+        m_offsets[0] = 0;
+        for (int i = 0; i < nbins; ++i) {m_offsets[i+1] = m_offsets[i] + m_counts[i];}
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel for
+#endif
+        for (int i = 0; i < nbins; ++i) {
+            for (int j = 0; j < nchunks; ++j) {
+                counts[nbins*j+i] += m_offsets[i];
+            }
+        }
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel for
+#endif
+        for (int j = 0; j < nchunks; ++j) {
+            int istart = j*chunksize;
+            int istop = (j == nchunks-1) ? nitems : (j+1)*chunksize;
+            for (int i = istart; i < istop; ++i) {
+                auto bid = m_bins[i];
+                m_perm[counts[nbins*j+bid]++] = i;
+            }
+        }
+
+        The_Arena()->free(counts);
+    }
+//
+//=================================================================================================================
+//
+    
 public:
 
     //! \brief the number of items in the container

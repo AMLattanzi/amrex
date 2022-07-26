@@ -260,6 +260,18 @@ public:
                             Vector<std::map<std::pair<int, int>, amrex::NeighborList<typename OtherPCType::ParticleType> > >& neighbor_lists,
                             bool sort=false);
 
+// AML
+//=================================================================================================================
+//
+    ///
+    /// Build a Neighbor List for each tile
+    ///
+    template <class CheckPair>
+    void buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int npair, int ntype, int* RefRatio);
+// 
+//=================================================================================================================
+//
+   
     template <class CheckPair>
     void selectActualNeighbors (CheckPair&& check_pair, int num_cells=1);
 

@@ -806,6 +806,112 @@ buildNeighborList (CheckPair&& check_pair, OtherPCType& other,
     }
 }
 
+// AML
+//=================================================================================================================
+//
+template <int NStructReal, int NStructInt, int NArrayReal, int NArrayInt>
+template <class CheckPair>
+void
+NeighborParticleContainer<NStructReal, NStructInt, NArrayReal, NArrayInt>::
+buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int npair, int ntype, int* RefRatio)
+{
+    /*
+    amrex::Print() << "TEST BPNL! " << npair << ' ' << ntype << "\n";
+    for (int n(0); n<ntype; ++n) amrex::Print() << RefRatio[n] << "\n";
+    exit(0);
+    */
+    
+    AMREX_ASSERT(numParticlesOutOfRange(*this, m_num_neighbor_cells) == 0);
+
+    BL_PROFILE("NeighborParticleContainer::buildPolyNeighborList");
+
+    resizeContainers(this->numLevels());
+
+    for (int lev = 0; lev < this->numLevels(); ++lev)
+    {
+        m_neighbor_list[lev].clear();
+
+        for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
+            PairIndex index(pti.index(), pti.LocalTileIndex());
+            m_neighbor_list[lev][index];
+        }
+
+#ifndef AMREX_USE_GPU
+        neighbor_list[lev].clear();
+        for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
+            PairIndex index(pti.index(), pti.LocalTileIndex());
+            neighbor_list[lev][index];
+        }
+#endif
+
+              auto& plev = this->GetParticles(lev);
+        const auto& geom = this->Geom(lev);
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MyParIter pti(*this, lev); pti.isValid(); ++pti)
+        {
+            int gid = pti.index();
+            int tid = pti.LocalTileIndex();
+            auto index = std::make_pair(gid, tid);
+
+            auto& ptile = plev[index];
+
+            if (ptile.numParticles() == 0) continue;
+
+            Box bx = pti.tilebox();
+            
+
+            // Modify box and geom for refined grid
+            //-------------------------------------------------------------------------------------------
+            // Local RealBox
+            const Real* plo = geom.ProbLo();
+            const Real* phi = geom.ProbHi();
+            RealBox lrb(plo, phi);
+            // Local coordinate system
+            auto lcoord = geom.Coord();
+            // Local periodicity
+            Array<int,AMREX_SPACEDIM> lper = geom.isPeriodic();
+            
+            amrex::Print() << "PRE: " << bx << ' ' << lrb << ' '
+                           << lcoord << ' ' << geom.InvCellSize(0) << "\n";
+           
+            Box lbx = bx.refine(RefRatio[0]);          
+            Geometry lgeom(lbx,lrb,lcoord,lper);
+            
+            amrex::Print() << "POST: " << lbx << ' ' << lrb << ' '
+                           << lcoord << ' ' << lgeom.InvCellSize(0) << "\n";
+            exit(0);
+            //-------------------------------------------------------------------------------------------
+
+            bx.grow(computeRefFac(0, lev).max()*m_num_neighbor_cells);
+            
+            m_neighbor_list[lev][index].buildPoly(ptile, bx, geom,
+                          std::forward<CheckPair>(check_pair),
+                          computeRefFac(0, lev).max()*m_num_neighbor_cells);
+#ifndef AMREX_USE_GPU
+            const auto& counts = m_neighbor_list[lev][index].GetCounts();
+            const auto& list   = m_neighbor_list[lev][index].GetList();
+
+            int li = 0;
+            for (int i = 0; i < ptile.numParticles(); ++i)
+            {
+                auto cnt = counts[i];
+                neighbor_list[lev][index].push_back(cnt);
+                for (size_t j = 0; j < cnt; ++j)
+                {
+                    neighbor_list[lev][index].push_back(list[li++]+1);
+                }
+            }
+#endif
+        } //ParIter
+    } //Lev
+}
+//
+//=================================================================================================================
+//
+
 template <int NStructReal, int NStructInt, int NArrayReal, int NArrayInt>
 template <class CheckPair>
 void
