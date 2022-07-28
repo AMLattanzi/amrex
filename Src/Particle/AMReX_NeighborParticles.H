@@ -267,7 +267,8 @@ public:
     /// Build a Neighbor List for each tile
     ///
     template <class CheckPair>
-    void buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int npair, int ntype, int* RefRatio);
+    void buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
+                                int npair, int ntype, int* RefRatio);
 // 
 //=================================================================================================================
 //

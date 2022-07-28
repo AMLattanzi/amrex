@@ -15,7 +15,7 @@ template <int NReal, int NInt,
 struct StructOfArrays {
 
     using RealVector = amrex::PODVector<ParticleReal, Allocator<ParticleReal> >;
-    using IntVector = amrex::PODVector<int, Allocator<int> >;
+    using IntVector  = amrex::PODVector<int, Allocator<int> >;
 
     StructOfArrays()
         : m_num_neighbor_particles(0),

@@ -468,23 +468,24 @@ public:
 // AML
 //=================================================================================================================
 //
-    template <typename N, typename F>
-    void buildPoly (N nitems, T const* v, const Box& bx, F&& f)
+    
+    template <typename N, typename M, typename F>
+    void buildPoly (N nitems, T const* v, M& pTypeArr, const Box& bx, F&& f)
     {
-        buildPoly(BinPolicy::Default, nitems, v, bx, std::forward<F>(f));
+        buildPoly(BinPolicy::Default, nitems, v, pTypeArr, bx, std::forward<F>(f));
     }
-    template <typename N, typename F>
-    void buildPoly (N nitems, T const* v, int nbins, F&& f)
+    template <typename N, typename M, typename F>
+    void buildPoly (N nitems, T const* v, M& pTypeArr, int nbins, F&& f)
     {
-        buildPoly(BinPolicy::Default, nitems, v, nbins, std::forward<F>(f));
+        buildPoly(BinPolicy::Default, nitems, v, pTypeArr, nbins, std::forward<F>(f));
     }
     
-    template <typename N, typename F>
-    void buildPoly (BinPolicy::OpenMPBinPolicy, N nitems, T const* v, const Box& bx, F&& f)
+    template <typename N, typename M, typename F>
+    void buildPoly (BinPolicy::OpenMPBinPolicy, N nitems, T const* v, M& pTypeArr, const Box& bx, F&& f)
     {
         const auto lo = lbound(bx);
         const auto hi = ubound(bx);
-        buildPoly(BinPolicy::OpenMP, nitems, v, bx.numPts(),
+        buildPoly(BinPolicy::OpenMP, nitems, v, pTypeArr, bx.numPts(),
                  [=] (const T& t) noexcept
                  {
                      auto iv = f(t);
@@ -499,11 +500,21 @@ public:
                  });
     }
 
-    template <typename N, typename F>
-    void buildPoly (BinPolicy::OpenMPBinPolicy, N nitems, T const* v, int nbins, F&& f)
+    template <typename N, typename M, typename F>
+    void buildPoly (BinPolicy::OpenMPBinPolicy, N nitems, T const* v, M& pTypeArr, int nbins, F&& f)
     {   
         BL_PROFILE("DenseBins<T>::buildOpenMP");
 
+        /*
+        for (int i(0); i<10; ++i) {
+            amrex::Print() << "Particle: " << i << "\n";
+            amrex::Print() << v[i] << "\n";
+            amrex::Print() << v[i].NReal << ' ' << v[i].NInt << "\n";
+            amrex::Print() << pTypeArr[i] << "\n";
+        }
+        exit(0);
+        */
+        
         m_items = v;
 
         m_bins.resize(nitems);

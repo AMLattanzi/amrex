@@ -813,14 +813,9 @@ template <int NStructReal, int NStructInt, int NArrayReal, int NArrayInt>
 template <class CheckPair>
 void
 NeighborParticleContainer<NStructReal, NStructInt, NArrayReal, NArrayInt>::
-buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int npair, int ntype, int* RefRatio)
-{
-    /*
-    amrex::Print() << "TEST BPNL! " << npair << ' ' << ntype << "\n";
-    for (int n(0); n<ntype; ++n) amrex::Print() << RefRatio[n] << "\n";
-    exit(0);
-    */
-    
+buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
+                       int npair, int ntype, int* RefRatio)
+{   
     AMREX_ASSERT(numParticlesOutOfRange(*this, m_num_neighbor_cells) == 0);
 
     BL_PROFILE("NeighborParticleContainer::buildPolyNeighborList");
@@ -856,55 +851,74 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int npair, int nty
             int tid = pti.LocalTileIndex();
             auto index = std::make_pair(gid, tid);
 
-            auto& ptile = plev[index];
+            auto& ptile   = plev[index];
 
+            // Get integer data
+            auto& soa     = pti.GetStructOfArrays();
+            auto pTypeArr = soa.GetIntData(typeInd);
+                
             if (ptile.numParticles() == 0) continue;
 
             Box bx = pti.tilebox();
-            
 
-            // Modify box and geom for refined grid
-            //-------------------------------------------------------------------------------------------
-            // Local RealBox
-            const Real* plo = geom.ProbLo();
-            const Real* phi = geom.ProbHi();
-            RealBox lrb(plo, phi);
-            // Local coordinate system
-            auto lcoord = geom.Coord();
-            // Local periodicity
-            Array<int,AMREX_SPACEDIM> lper = geom.isPeriodic();
-            
-            amrex::Print() << "PRE: " << bx << ' ' << lrb << ' '
-                           << lcoord << ' ' << geom.InvCellSize(0) << "\n";
-           
-            Box lbx = bx.refine(RefRatio[0]);          
-            Geometry lgeom(lbx,lrb,lcoord,lper);
-            
-            amrex::Print() << "POST: " << lbx << ' ' << lrb << ' '
-                           << lcoord << ' ' << lgeom.InvCellSize(0) << "\n";
-            exit(0);
-            //-------------------------------------------------------------------------------------------
+            // Recursive loop to get smallest->largest ordering (e.g., 0-0 0-1 0-2, 1-1 1-2, 2-2 )
+            int ind(0);
+            for (int i(0); i<ntype; ++i) {
+                for (int j(i); j<ntype; ++j) {
+                    
+                    // Domain
+                    Box dom = geom.Domain();
+                    // Local RealBox
+                    const Real* plo = geom.ProbLo();
+                    const Real* phi = geom.ProbHi();
+                    RealBox lrb(plo, phi);
+                    // Local coordinate system
+                    auto lcoord = geom.Coord();
+                    // Local periodicity
+                    Array<int,AMREX_SPACEDIM> lper = geom.isPeriodic();
+                    
+                    // Refined tile box and domain
+                    Box lbx(bx.smallEnd(),bx.bigEnd(),bx.ixType());
+                    Box ldom(dom.smallEnd(),dom.bigEnd(),dom.ixType());
+                    lbx.refine(RefRatio[j]);
+                    ldom.refine(RefRatio[j]);
+                    // New geometry with refined domain
+                    Geometry lgeom(ldom,lrb,lcoord,lper);
 
-            bx.grow(computeRefFac(0, lev).max()*m_num_neighbor_cells);
+                    // Grow for ghost cells
+                    int NGhost = RefRatio[j]*m_num_neighbor_cells;
+                    lbx.grow(NGhost);
+
+                    // PASS (I,J,IND) TO BUILDPOLY TO DO APPROPRIATE CYCLING 
+                    /*
+                    amrex::Print() << bx << ' ' << lbx << "\n";
+                    amrex::Print() << dom << ' ' << ldom << "\n";
+                    amrex::Print() << geom.InvCellSize(0) << ' ' << lgeom.InvCellSize(0) << "\n";
+                    amrex::Print() << bx << ' ' << lbx << "\n";
+                    amrex::Print() << "\n";
+                    continue;
+                    //exit(0);
+                    */
             
-            m_neighbor_list[lev][index].buildPoly(ptile, bx, geom,
-                          std::forward<CheckPair>(check_pair),
-                          computeRefFac(0, lev).max()*m_num_neighbor_cells);
+                    m_neighbor_list[lev][index].buildPoly(ptile, pTypeArr, lbx, lgeom,
+                                                          std::forward<CheckPair>(check_pair), NGhost);
 #ifndef AMREX_USE_GPU
-            const auto& counts = m_neighbor_list[lev][index].GetCounts();
-            const auto& list   = m_neighbor_list[lev][index].GetList();
+                    const auto& counts = m_neighbor_list[lev][index].GetCounts();
+                    const auto& list   = m_neighbor_list[lev][index].GetList();
 
-            int li = 0;
-            for (int i = 0; i < ptile.numParticles(); ++i)
-            {
-                auto cnt = counts[i];
-                neighbor_list[lev][index].push_back(cnt);
-                for (size_t j = 0; j < cnt; ++j)
-                {
-                    neighbor_list[lev][index].push_back(list[li++]+1);
-                }
-            }
+                    int li = 0;
+                    for (int i = 0; i < ptile.numParticles(); ++i) {
+                        auto cnt = counts[i];
+                        neighbor_list[lev][index].push_back(cnt);
+                        for (size_t j = 0; j < cnt; ++j) {
+                            neighbor_list[lev][index].push_back(list[li++]+1);
+                        }
+                    }
 #endif
+                    ++ind;
+                }//j
+            }//i
+            //exit(0);
         } //ParIter
     } //Lev
 }

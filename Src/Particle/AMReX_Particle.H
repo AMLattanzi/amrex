@@ -423,7 +423,9 @@ template <int NReal, int NInt>
 std::ostream&
 operator<< (std::ostream& os, const Particle<NReal, NInt>& p)
 {
-    os << p.id()   << ' '
+    os << NReal    << ' '
+       << NInt     << ' '
+       << p.id()   << ' '
        << p.cpu()  << ' ';
 
     for (int i = 0; i < AMREX_SPACEDIM; i++)
@@ -445,7 +447,8 @@ template <int NReal>
 std::ostream&
 operator<< (std::ostream& os, const Particle<NReal, 0>& p)
 {
-    os << p.id()   << ' '
+    os << NReal    << ' '
+       << p.id()   << ' '
        << p.cpu()  << ' ';
 
     for (int i = 0; i < AMREX_SPACEDIM; i++)
@@ -464,7 +467,8 @@ template <int NInt>
 std::ostream&
 operator<< (std::ostream& os, const Particle<0, NInt>& p)
 {
-    os << p.id()   << ' '
+    os << NInt     << ' '
+       << p.id()   << ' '
        << p.cpu()  << ' ';
 
     for (int i = 0; i < AMREX_SPACEDIM; i++)
@@ -483,7 +487,9 @@ template <int NReal=0, int NInt=0>
 std::ostream&
 operator<< (std::ostream& os, const Particle<0, 0>& p)
 {
-    os << p.id()   << ' '
+    os << NReal    << ' '
+       << NInt     << ' '
+       << p.id()   << ' '
        << p.cpu()  << ' ';
 
     for (int i = 0; i < AMREX_SPACEDIM; i++)

@@ -324,19 +324,26 @@ public:
 // AML
 //=================================================================================================================
 //
-    template <class PTile, class CheckPair>
-    void buildPoly (PTile& ptile,
+    template <class PTile, class CheckPair, typename M>
+    void buildPoly (PTile& ptile, M& pTypeArr,
                     const amrex::Box& bx, const amrex::Geometry& geom,
                     CheckPair&& check_pair, int num_cells=1)
     {
-        buildPoly(ptile, ptile, bx, geom, check_pair, num_cells);
+        buildPoly(ptile, ptile, pTypeArr, bx, geom, check_pair, num_cells);
     }
 
-    template <class SrcTile, class TargetTile, class CheckPair>
-    void buildPoly (SrcTile& src_tile, TargetTile& target_tile,
+    template <class SrcTile, class TargetTile, class CheckPair, typename M>
+    void buildPoly (SrcTile& src_tile, TargetTile& target_tile, M& pTypeArr,
                     const amrex::Box& bx, const amrex::Geometry& geom,
                     CheckPair&& check_pair, int num_cells=1)
-    {  
+    {
+        /*
+        for (int i(0); i<10; ++i) {
+            amrex::Print() << "HERE2: " << pTypeArr[i] << "\n";
+        }
+        amrex::Print() << "\n";
+        */
+        
         BL_PROFILE("NeighborList::build()");
 
         bool is_same = isSame(&src_tile, &target_tile);
@@ -347,13 +354,13 @@ public:
         const auto dxi = geom.InvCellSizeArray();
         const auto plo = geom.ProbLoArray();
 
-        const size_t np_total = vec.size();
-        const auto pstruct_ptr = vec.dataPtr();
+        const size_t np_total     = vec.size();
+        const auto pstruct_ptr    = vec.dataPtr();
         const auto dst_ptile_data = target_tile.getConstParticleTileData();
 
         const auto lo = lbound(bx);
         const auto hi = ubound(bx);
-        m_bins.buildPoly(np_total, pstruct_ptr, bx,
+        m_bins.buildPoly(np_total, pstruct_ptr, pTypeArr, bx,
                          [=] AMREX_GPU_DEVICE (const ParticleType& p) noexcept -> IntVect
                          {
                              AMREX_D_TERM(AMREX_ASSERT((p.pos(0)-plo[0])*dxi[0] - lo.x >= 0.0);,
