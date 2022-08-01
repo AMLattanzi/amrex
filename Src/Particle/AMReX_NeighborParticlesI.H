@@ -862,6 +862,7 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
             Box bx = pti.tilebox();
 
             // Recursive loop to get smallest->largest ordering (e.g., 0-0 0-1 0-2, 1-1 1-2, 2-2 )
+            amrex::Print() << "PolyNeighBuild..." << "\n";
             int ind(0);
             for (int i(0); i<ntype; ++i) {
                 for (int j(i); j<ntype; ++j) {
@@ -890,21 +891,28 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
                     lbx.grow(NGhost);
 
                     // PASS (I,J,IND) TO BUILDPOLY TO DO APPROPRIATE CYCLING 
-                    /*
-                    amrex::Print() << bx << ' ' << lbx << "\n";
+                    amrex::Print() << "PAIRS: " << i << '-' << j << "\n";
+                    amrex::Print() << bx << ' ' << lbx << ' ' << lbx.numPts() << "\n";
                     amrex::Print() << dom << ' ' << ldom << "\n";
                     amrex::Print() << geom.InvCellSize(0) << ' ' << lgeom.InvCellSize(0) << "\n";
                     amrex::Print() << bx << ' ' << lbx << "\n";
                     amrex::Print() << "\n";
-                    continue;
+                    //continue;
                     //exit(0);
-                    */
+                    
             
-                    m_neighbor_list[lev][index].buildPoly(ptile, pTypeArr, lbx, lgeom, i, j, ind,
-                                                          std::forward<CheckPair>(check_pair), NGhost);
+                    int PolyTot = m_neighbor_list[lev][index].buildPoly(ptile, pTypeArr, lbx, lgeom, i, j, ind,
+                                                                        std::forward<CheckPair>(check_pair), NGhost);
+                    amrex::Print() << "Top Level: " << PolyTot << "\n";
+                    amrex::Print() << "\n";
+                    if (PolyTot < 2) continue;
+
+                    amrex::Print() << "Top Level Continue... "<< "\n";
 #ifndef AMREX_USE_GPU
                     const auto& counts = m_neighbor_list[lev][index].GetCounts();
                     const auto& list   = m_neighbor_list[lev][index].GetList();
+
+                    amrex::Print() << "BNL: " << counts[0] << list[0] << "\n";
 
                     int li = 0;
                     for (int i = 0; i < ptile.numParticles(); ++i) {

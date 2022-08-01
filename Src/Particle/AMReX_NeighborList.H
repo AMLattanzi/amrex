@@ -325,16 +325,16 @@ public:
 //=================================================================================================================
 //
     template <class PTile, class CheckPair, typename M>
-    void buildPoly (PTile& ptile, M& pTypeArr,const amrex::Box& bx,
+    int buildPoly (PTile& ptile, M& pTypeArr,const amrex::Box& bx,
                     const amrex::Geometry& geom, int type1, int type2, int indx,
                     CheckPair&& check_pair, int num_cells=1)
     {
-        buildPoly(ptile, ptile, pTypeArr, bx, geom,
+        return buildPoly(ptile, ptile, pTypeArr, bx, geom,
                   type1, type2, indx, check_pair, num_cells);
     }
 
     template <class SrcTile, class TargetTile, class CheckPair, typename M>
-    void buildPoly (SrcTile& src_tile, TargetTile& target_tile, M& pTypeArr,
+    int buildPoly (SrcTile& src_tile, TargetTile& target_tile, M& pTypeArr,
                     const amrex::Box& bx, const amrex::Geometry& geom,
                     int type1, int type2, int indx,
                     CheckPair&& check_pair, int num_cells=1)
@@ -355,7 +355,9 @@ public:
 
         const auto lo = lbound(bx);
         const auto hi = ubound(bx);
-        m_bins.buildPoly(np_total, pstruct_ptr, pTypeArr, bx, type1, type2, indx,
+        amrex::Print() << "CHECK NL: " << bx.numPts() << "\n";
+        
+        int PolyTot = m_bins.buildPoly(np_total, pstruct_ptr, pTypeArr, bx, type1, type2, indx,
                          [=] AMREX_GPU_DEVICE (const ParticleType& p) noexcept -> IntVect
                          {
                              AMREX_D_TERM(AMREX_ASSERT((p.pos(0)-plo[0])*dxi[0] - lo.x >= 0.0);,
@@ -367,7 +369,8 @@ public:
                                                          static_cast<int>(amrex::Math::floor((p.pos(2)-plo[2])*dxi[2])) - lo.z));
                          });
 
-        amrex::Print() << "Clear builPoly DB" << "\n";
+        amrex::Print() << "Clear builPoly DB " << PolyTot << "\n";
+        if (PolyTot < 2) return PolyTot;
         
         // first pass - count the number of neighbors for each particle
         const size_t np_real  = src_tile.numRealParticles();
@@ -382,6 +385,7 @@ public:
         const auto src_ptile_data  = src_tile.getConstParticleTileData();
         const auto src_pstruct_ptr = src_tile.GetArrayOfStructs()().dataPtr();
 
+        amrex::Print() << "FOR LP1" << "\n";
         int pairType;
         AMREX_FOR_1D ( np_real, i,
         {
@@ -412,8 +416,6 @@ public:
                         int index = (ii * ny + jj) * nz + kk;
                         for (auto p = poffset[index]; p < poffset[index+1]; ++p) {
                             if (is_same && (pperm[p] == i)) continue;
-                            amrex::Print() << "FOR LOOP: " << i << ' ' << pperm[p] << ' ' << p << "\n";
-                            exit(0);
                             if (pTypeArr[pperm[p]] != pairType) continue;
                             if (call_check_pair(check_pair, src_ptile_data, dst_ptile_data, i, pperm[p])) {
                                 count += 1;
@@ -425,6 +427,9 @@ public:
 
             pnbor_counts[i] = count;
         });
+
+        amrex::Print() << "CLEARED LOOP1 " << pnbor_counts[0] << ' ' << pnbor_counts[1] << ' '
+                       << poffset[0] << ' ' << poffset[1] << "\n";
 
         Gpu::exclusive_scan(m_nbor_counts.begin(), m_nbor_counts.end(), m_nbor_offsets.begin());
 
@@ -463,6 +468,7 @@ public:
                         int index = (ii * ny + jj) * nz + kk;
                         for (auto p = poffset[index]; p < poffset[index+1]; ++p) {
                             if (is_same && (pperm[p] == i)) continue;
+                            if (pTypeArr[pperm[p]] != pairType) continue;
                             if (call_check_pair(check_pair, src_ptile_data, dst_ptile_data, i, pperm[p])) {
                                 pm_nbor_list[pnbor_offset[i] + n] = pperm[p];
                                 ++n;
@@ -472,6 +478,11 @@ public:
                 }
             }
         });
+
+        amrex::Print() << "CLEARED LOOP2 " << pm_nbor_list[0] << ' ' << pnbor_counts[1] << ' '
+                       << poffset[0] << ' ' << poffset[1] << "\n";
+                                                           
+        return PolyTot;
     }
 //
 //=================================================================================================================
