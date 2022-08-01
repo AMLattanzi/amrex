@@ -900,7 +900,7 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
                     //exit(0);
                     */
             
-                    m_neighbor_list[lev][index].buildPoly(ptile, pTypeArr, lbx, lgeom,
+                    m_neighbor_list[lev][index].buildPoly(ptile, pTypeArr, lbx, lgeom, i, j, ind,
                                                           std::forward<CheckPair>(check_pair), NGhost);
 #ifndef AMREX_USE_GPU
                     const auto& counts = m_neighbor_list[lev][index].GetCounts();
@@ -918,7 +918,7 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
                     ++ind;
                 }//j
             }//i
-            //exit(0);
+            exit(0);
         } //ParIter
     } //Lev
 }

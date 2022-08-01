@@ -325,25 +325,20 @@ public:
 //=================================================================================================================
 //
     template <class PTile, class CheckPair, typename M>
-    void buildPoly (PTile& ptile, M& pTypeArr,
-                    const amrex::Box& bx, const amrex::Geometry& geom,
+    void buildPoly (PTile& ptile, M& pTypeArr,const amrex::Box& bx,
+                    const amrex::Geometry& geom, int type1, int type2, int indx,
                     CheckPair&& check_pair, int num_cells=1)
     {
-        buildPoly(ptile, ptile, pTypeArr, bx, geom, check_pair, num_cells);
+        buildPoly(ptile, ptile, pTypeArr, bx, geom,
+                  type1, type2, indx, check_pair, num_cells);
     }
 
     template <class SrcTile, class TargetTile, class CheckPair, typename M>
     void buildPoly (SrcTile& src_tile, TargetTile& target_tile, M& pTypeArr,
                     const amrex::Box& bx, const amrex::Geometry& geom,
+                    int type1, int type2, int indx,
                     CheckPair&& check_pair, int num_cells=1)
-    {
-        /*
-        for (int i(0); i<10; ++i) {
-            amrex::Print() << "HERE2: " << pTypeArr[i] << "\n";
-        }
-        amrex::Print() << "\n";
-        */
-        
+    {   
         BL_PROFILE("NeighborList::build()");
 
         bool is_same = isSame(&src_tile, &target_tile);
@@ -360,7 +355,7 @@ public:
 
         const auto lo = lbound(bx);
         const auto hi = ubound(bx);
-        m_bins.buildPoly(np_total, pstruct_ptr, pTypeArr, bx,
+        m_bins.buildPoly(np_total, pstruct_ptr, pTypeArr, bx, type1, type2, indx,
                          [=] AMREX_GPU_DEVICE (const ParticleType& p) noexcept -> IntVect
                          {
                              AMREX_D_TERM(AMREX_ASSERT((p.pos(0)-plo[0])*dxi[0] - lo.x >= 0.0);,
@@ -372,6 +367,8 @@ public:
                                                          static_cast<int>(amrex::Math::floor((p.pos(2)-plo[2])*dxi[2])) - lo.z));
                          });
 
+        amrex::Print() << "Clear builPoly DB" << "\n";
+        
         // first pass - count the number of neighbors for each particle
         const size_t np_real  = src_tile.numRealParticles();
         m_nbor_counts.resize(np_real+1, 0);
@@ -385,8 +382,15 @@ public:
         const auto src_ptile_data  = src_tile.getConstParticleTileData();
         const auto src_pstruct_ptr = src_tile.GetArrayOfStructs()().dataPtr();
 
+        int pairType;
         AMREX_FOR_1D ( np_real, i,
         {
+            if (pTypeArr[i] == type1) {
+                pairType = type2;
+            } else if (pTypeArr[i] == type2) {
+                pairType = type1;
+            } else continue;
+            
             IntVect iv(AMREX_D_DECL(
                 static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(0)-plo[0])*dxi[0])) - lo.x,
                 static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(1)-plo[1])*dxi[1])) - lo.y,
@@ -408,6 +412,9 @@ public:
                         int index = (ii * ny + jj) * nz + kk;
                         for (auto p = poffset[index]; p < poffset[index+1]; ++p) {
                             if (is_same && (pperm[p] == i)) continue;
+                            amrex::Print() << "FOR LOOP: " << i << ' ' << pperm[p] << ' ' << p << "\n";
+                            exit(0);
+                            if (pTypeArr[pperm[p]] != pairType) continue;
                             if (call_check_pair(check_pair, src_ptile_data, dst_ptile_data, i, pperm[p])) {
                                 count += 1;
                             }

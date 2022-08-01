@@ -470,22 +470,27 @@ public:
 //
     
     template <typename N, typename M, typename F>
-    void buildPoly (N nitems, T const* v, M& pTypeArr, const Box& bx, F&& f)
+    void buildPoly (N nitems, T const* v, M& pTypeArr, const Box& bx,
+                    int type1, int type2, int indx, F&& f)
     {
-        buildPoly(BinPolicy::Default, nitems, v, pTypeArr, bx, std::forward<F>(f));
+        buildPoly(BinPolicy::Default, nitems, v, pTypeArr, bx,
+                  type1, type2, indx, std::forward<F>(f));
     }
     template <typename N, typename M, typename F>
-    void buildPoly (N nitems, T const* v, M& pTypeArr, int nbins, F&& f)
+    void buildPoly (N nitems, T const* v, M& pTypeArr, int nbins,
+                    int type1, int type2, int indx, F&& f)
     {
-        buildPoly(BinPolicy::Default, nitems, v, pTypeArr, nbins, std::forward<F>(f));
+        buildPoly(BinPolicy::Default, nitems, v, pTypeArr, nbins,
+                  type1, type2, indx, std::forward<F>(f));
     }
     
     template <typename N, typename M, typename F>
-    void buildPoly (BinPolicy::OpenMPBinPolicy, N nitems, T const* v, M& pTypeArr, const Box& bx, F&& f)
+    void buildPoly (BinPolicy::OpenMPBinPolicy, N nitems, T const* v, M& pTypeArr, const Box& bx,
+                    int type1, int type2, int indx, F&& f)
     {
         const auto lo = lbound(bx);
         const auto hi = ubound(bx);
-        buildPoly(BinPolicy::OpenMP, nitems, v, pTypeArr, bx.numPts(),
+        buildPoly(BinPolicy::OpenMP, nitems, v, pTypeArr, bx.numPts(), type1, type2, indx,
                  [=] (const T& t) noexcept
                  {
                      auto iv = f(t);
@@ -501,19 +506,20 @@ public:
     }
 
     template <typename N, typename M, typename F>
-    void buildPoly (BinPolicy::OpenMPBinPolicy, N nitems, T const* v, M& pTypeArr, int nbins, F&& f)
+    void buildPoly (BinPolicy::OpenMPBinPolicy, N nitems, T const* v, M& pTypeArr, int nbins,
+                    int type1, int type2, int indx, F&& f)
     {   
         BL_PROFILE("DenseBins<T>::buildOpenMP");
 
-        /*
-        for (int i(0); i<10; ++i) {
+        
+        for (int i(0); i<5; ++i) {
             amrex::Print() << "Particle: " << i << "\n";
             amrex::Print() << v[i] << "\n";
             amrex::Print() << v[i].NReal << ' ' << v[i].NInt << "\n";
-            amrex::Print() << pTypeArr[i] << "\n";
+            amrex::Print() << pTypeArr[i] << ' ' << type1 << ' ' << type2 << ' ' << indx << "\n";
         }
-        exit(0);
-        */
+        amrex::Print() << "\n";
+        
         
         m_items = v;
 
@@ -531,6 +537,8 @@ public:
         m_offsets.resize(0);
         m_offsets.resize(nbins+1);
 
+        int PolyTot(0);
+
 #ifdef AMREX_USE_OMP
 #pragma omp parallel for
 #endif
@@ -538,10 +546,14 @@ public:
             int istart = j*chunksize;
             int istop = (j == nchunks-1) ? nitems : (j+1)*chunksize;
             for (int i = istart; i < istop; ++i) {
+                if (pTypeArr[i] != type1 || pTypeArr[i] != type2) continue;
                 m_bins[i] = f(v[i]);
                 ++counts[nbins*j+m_bins[i]];
+                ++PolyTot;
             }
         }
+
+        amrex::Print() << "Cleared loop 1 DB " <<PolyTot <<  "\n";
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel for
@@ -556,9 +568,13 @@ public:
             m_counts[i] = total;
         }
 
+        amrex::Print() << "Cleared loop 2 DB" << "\n";
+        
         // note - this part has to be serial
         m_offsets[0] = 0;
         for (int i = 0; i < nbins; ++i) {m_offsets[i+1] = m_offsets[i] + m_counts[i];}
+
+        amrex::Print() << "Cleared loop 3 DB" << "\n";
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel for
@@ -569,17 +585,26 @@ public:
             }
         }
 
+        amrex::Print() << "Cleared loop 4 DB" << "\n";
+
 #ifdef AMREX_USE_OMP
 #pragma omp parallel for
 #endif
         for (int j = 0; j < nchunks; ++j) {
             int istart = j*chunksize;
             int istop = (j == nchunks-1) ? nitems : (j+1)*chunksize;
+            amrex::Print() << istart << ' ' << istop << "\n";
             for (int i = istart; i < istop; ++i) {
+                amrex::Print() << m_bins[i] << ' ' << (nbins*j+m_bins[i]) << ' ' << i << "\n";
+                amrex::Print() << m_bins.size() << ' ' << m_perm.size() << ' ' << nchunks*nbins*sizeof(index_type) << "\n";
+                amrex::Print() << counts[nbins*j+m_bins[i]] << "\n";
+                amrex::Print() << "\n";
                 auto bid = m_bins[i];
                 m_perm[counts[nbins*j+bid]++] = i;
             }
         }
+
+        amrex::Print() << "Cleared loop 5 DB" << "\n";
 
         The_Arena()->free(counts);
     }
