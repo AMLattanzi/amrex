@@ -863,35 +863,33 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
 
             // Recursive loop to get smallest->largest ordering (e.g., 0-0 0-1 0-2, 1-1 1-2, 2-2 )
             amrex::Print() << "PolyNeighBuild..." << "\n";
-            int ind(0);
-            for (int i(0); i<ntype; ++i) {
-                for (int j(i); j<ntype; ++j) {
+            for (int type(0); type<ntype; ++type) {
                     
                     // Domain
                     Box dom = geom.Domain();
                     // Local RealBox
                     const Real* plo = geom.ProbLo();
                     const Real* phi = geom.ProbHi();
-                    RealBox lrb(plo, phi);
+                    RealBox lrb(plo,phi);
                     // Local coordinate system
                     auto lcoord = geom.Coord();
                     // Local periodicity
                     Array<int,AMREX_SPACEDIM> lper = geom.isPeriodic();
                     
                     // Refined tile box and domain
-                    Box lbx(bx.smallEnd(),bx.bigEnd(),bx.ixType());
-                    Box ldom(dom.smallEnd(),dom.bigEnd(),dom.ixType());
-                    lbx.refine(RefRatio[j]);
-                    ldom.refine(RefRatio[j]);
+                    Box lbx(   bx.smallEnd(), bx.bigEnd(), bx.ixType() );
+                    Box ldom( dom.smallEnd(),dom.bigEnd(),dom.ixType() );
+                    lbx.refine(  RefRatio[type] );
+                    ldom.refine( RefRatio[type] );
                     // New geometry with refined domain
                     Geometry lgeom(ldom,lrb,lcoord,lper);
 
                     // Grow for ghost cells
-                    int NGhost = RefRatio[j]*m_num_neighbor_cells;
+                    int NGhost = RefRatio[type]*m_num_neighbor_cells;
                     lbx.grow(NGhost);
 
                     // PASS (I,J,IND) TO BUILDPOLY TO DO APPROPRIATE CYCLING 
-                    amrex::Print() << "PAIRS: " << i << '-' << j << "\n";
+                    amrex::Print() << "PAIRS: " << type << "\n";
                     amrex::Print() << bx << ' ' << lbx << ' ' << lbx.numPts() << "\n";
                     amrex::Print() << dom << ' ' << ldom << "\n";
                     amrex::Print() << geom.InvCellSize(0) << ' ' << lgeom.InvCellSize(0) << "\n";
@@ -901,18 +899,15 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
                     //exit(0);
                     
             
-                    int PolyTot = m_neighbor_list[lev][index].buildPoly(ptile, pTypeArr, lbx, lgeom, i, j, ind,
+                    int PolyTot = m_neighbor_list[lev][index].buildPoly(ptile, pTypeArr, lbx, lgeom, type, ntype,
                                                                         std::forward<CheckPair>(check_pair), NGhost);
-                    amrex::Print() << "Top Level: " << PolyTot << "\n";
-                    amrex::Print() << "\n";
-                    if (PolyTot < 2) continue;
 
-                    amrex::Print() << "Top Level Continue... "<< "\n";
+                    // No pairs of relevant types
+                    if (PolyTot < 2) continue;
+                    
 #ifndef AMREX_USE_GPU
                     const auto& counts = m_neighbor_list[lev][index].GetCounts();
                     const auto& list   = m_neighbor_list[lev][index].GetList();
-
-                    amrex::Print() << "BNL: " << counts[0] << list[0] << "\n";
 
                     int li = 0;
                     for (int i = 0; i < ptile.numParticles(); ++i) {
@@ -922,11 +917,9 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
                             neighbor_list[lev][index].push_back(list[li++]+1);
                         }
                     }
+                    amrex::Print() << "SIZE CHK: " << neighbor_list[lev][index].size() << "\n";
 #endif
-                    ++ind;
-                }//j
-            }//i
-            exit(0);
+            }//type
         } //ParIter
     } //Lev
 }

@@ -34,6 +34,19 @@ namespace
     {
         return check_pair(src_tile.m_aos, i, j);
     }
+
+// AML
+//=================================================================================================================
+//
+    template <typename F, typename SrcData, typename DstData, typename N1, typename N2, typename N3>
+    AMREX_GPU_HOST_DEVICE
+    auto call_check_poly_pair (F const& check_pair,
+                               const SrcData& src_tile, const DstData& /*dst_tile*/,
+                               N1 i, N2 j, N3 n)
+        noexcept -> decltype(check_pair(src_tile, i, j, n))
+    {
+        return check_pair(src_tile, i, j, n);
+    }
 }
 
 template <class ParticleType>
@@ -326,20 +339,19 @@ public:
 //
     template <class PTile, class CheckPair, typename M>
     int buildPoly (PTile& ptile, M& pTypeArr,const amrex::Box& bx,
-                    const amrex::Geometry& geom, int type1, int type2, int indx,
+                    const amrex::Geometry& geom, int type, int ntype,
                     CheckPair&& check_pair, int num_cells=1)
     {
         return buildPoly(ptile, ptile, pTypeArr, bx, geom,
-                  type1, type2, indx, check_pair, num_cells);
+                         type, ntype, check_pair, num_cells);
     }
 
     template <class SrcTile, class TargetTile, class CheckPair, typename M>
     int buildPoly (SrcTile& src_tile, TargetTile& target_tile, M& pTypeArr,
-                    const amrex::Box& bx, const amrex::Geometry& geom,
-                    int type1, int type2, int indx,
-                    CheckPair&& check_pair, int num_cells=1)
+                   const amrex::Box& bx, const amrex::Geometry& geom,
+                   int type, int ntype, CheckPair&& check_pair, int num_cells=1)
     {   
-        BL_PROFILE("NeighborList::build()");
+        BL_PROFILE("NeighborList::buildPoly()");
 
         bool is_same = isSame(&src_tile, &target_tile);
 
@@ -355,21 +367,20 @@ public:
 
         const auto lo = lbound(bx);
         const auto hi = ubound(bx);
-        amrex::Print() << "CHECK NL: " << bx.numPts() << "\n";
         
-        int PolyTot = m_bins.buildPoly(np_total, pstruct_ptr, pTypeArr, bx, type1, type2, indx,
-                         [=] AMREX_GPU_DEVICE (const ParticleType& p) noexcept -> IntVect
-                         {
-                             AMREX_D_TERM(AMREX_ASSERT((p.pos(0)-plo[0])*dxi[0] - lo.x >= 0.0);,
-                                          AMREX_ASSERT((p.pos(1)-plo[1])*dxi[1] - lo.y >= 0.0);,
-                                          AMREX_ASSERT((p.pos(2)-plo[2])*dxi[2] - lo.z >= 0.0));
-                             
-                             return IntVect(AMREX_D_DECL(static_cast<int>(amrex::Math::floor((p.pos(0)-plo[0])*dxi[0])) - lo.x,
-                                                         static_cast<int>(amrex::Math::floor((p.pos(1)-plo[1])*dxi[1])) - lo.y,
-                                                         static_cast<int>(amrex::Math::floor((p.pos(2)-plo[2])*dxi[2])) - lo.z));
-                         });
+        int PolyTot = m_bins.buildPoly(np_total, pstruct_ptr, pTypeArr, bx, type,
+                        [=] AMREX_GPU_DEVICE (const ParticleType& p) noexcept -> IntVect
+                        {
+                            AMREX_D_TERM(AMREX_ASSERT((p.pos(0)-plo[0])*dxi[0] - lo.x >= 0.0);,
+                                         AMREX_ASSERT((p.pos(1)-plo[1])*dxi[1] - lo.y >= 0.0);,
+                                         AMREX_ASSERT((p.pos(2)-plo[2])*dxi[2] - lo.z >= 0.0));
+                            
+                            return IntVect(AMREX_D_DECL(static_cast<int>(amrex::Math::floor((p.pos(0)-plo[0])*dxi[0])) - lo.x,
+                                                        static_cast<int>(amrex::Math::floor((p.pos(1)-plo[1])*dxi[1])) - lo.y,
+                                                        static_cast<int>(amrex::Math::floor((p.pos(2)-plo[2])*dxi[2])) - lo.z));
+                        });
 
-        amrex::Print() << "Clear builPoly DB " << PolyTot << "\n";
+        // No type pairs of relevant types
         if (PolyTot < 2) return PolyTot;
         
         // first pass - count the number of neighbors for each particle
@@ -385,15 +396,10 @@ public:
         const auto src_ptile_data  = src_tile.getConstParticleTileData();
         const auto src_pstruct_ptr = src_tile.GetArrayOfStructs()().dataPtr();
 
-        amrex::Print() << "FOR LP1" << "\n";
-        int pairType;
         AMREX_FOR_1D ( np_real, i,
         {
-            if (pTypeArr[i] == type1) {
-                pairType = type2;
-            } else if (pTypeArr[i] == type2) {
-                pairType = type1;
-            } else continue;
+            if (pTypeArr[i] > type)  continue;
+            bool isn_type(pTypeArr[i] != type);
             
             IntVect iv(AMREX_D_DECL(
                 static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(0)-plo[0])*dxi[0])) - lo.x,
@@ -415,21 +421,28 @@ public:
                     for (int kk = amrex::max(iz-num_cells, 0); kk <= amrex::min(iz+num_cells, nz-1); ++kk) {
                         int index = (ii * ny + jj) * nz + kk;
                         for (auto p = poffset[index]; p < poffset[index+1]; ++p) {
-                            if (is_same && (pperm[p] == i)) continue;
-                            if (pTypeArr[pperm[p]] != pairType) continue;
-                            if (call_check_pair(check_pair, src_ptile_data, dst_ptile_data, i, pperm[p])) {
+                            const auto& pid = pperm[p]; 
+                            if (is_same && (pid == i)) continue;
+                            if (pTypeArr[pid] > type) continue;
+                            if (isn_type && pTypeArr[pid] != type) continue;
+                            // Get index for NEIGHBORHOOD from analytical partial sums
+                            int imin = amrex::min(pTypeArr[i],pTypeArr[pid]);
+                            int imax = amrex::max(pTypeArr[i],pTypeArr[pid]);
+                            int k    = imin - 1;
+                            // \Sum_{i=N-k}^{N} (i)
+                            int indx = ntype*(k+1) - (k*(k+1))/2;
+                            // \Sum_{i=1}^{l} (i)
+                            indx += imax - imin;
+                            if (call_check_poly_pair(check_pair, src_ptile_data, dst_ptile_data, i, pid, indx)) {
                                 count += 1;
                             }
                         }
                     }
                 }
             }
-
+            
             pnbor_counts[i] = count;
         });
-
-        amrex::Print() << "CLEARED LOOP1 " << pnbor_counts[0] << ' ' << pnbor_counts[1] << ' '
-                       << poffset[0] << ' ' << poffset[1] << "\n";
 
         Gpu::exclusive_scan(m_nbor_counts.begin(), m_nbor_counts.end(), m_nbor_offsets.begin());
 
@@ -441,12 +454,17 @@ public:
         std::memcpy(&total_nbors,m_nbor_offsets.dataPtr()+np_real,sizeof(unsigned int));
 #endif
 
+        amrex::Print() << "CLEARED LOOP1 " << total_nbors << ' ' << PolyTot << ' ' << np_real << "\n";
+        
         m_nbor_list.resize(total_nbors);
 
         auto pm_nbor_list = m_nbor_list.dataPtr();
 
         AMREX_FOR_1D ( np_real, i,
         {
+            if (pTypeArr[i] > type)  continue;
+            bool isn_type(pTypeArr[i] != type);
+            
             IntVect iv(AMREX_D_DECL(
                 static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(0)-plo[0])*dxi[0])) - lo.x,
                 static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(1)-plo[1])*dxi[1])) - lo.y,
@@ -467,10 +485,20 @@ public:
                     for (int kk = amrex::max(iz-num_cells, 0); kk <= amrex::min(iz+num_cells, nz-1); ++kk) {
                         int index = (ii * ny + jj) * nz + kk;
                         for (auto p = poffset[index]; p < poffset[index+1]; ++p) {
-                            if (is_same && (pperm[p] == i)) continue;
-                            if (pTypeArr[pperm[p]] != pairType) continue;
-                            if (call_check_pair(check_pair, src_ptile_data, dst_ptile_data, i, pperm[p])) {
-                                pm_nbor_list[pnbor_offset[i] + n] = pperm[p];
+                            const auto& pid = pperm[p]; 
+                            if (is_same && (pid == i)) continue;
+                            if (pTypeArr[pid] > type) continue;
+                            if (isn_type && pTypeArr[pid] != type) continue;
+                            // Get index for NEIGHBORHOOD from analytical partial sums
+                            int imin = amrex::min(pTypeArr[i],pTypeArr[pid]);
+                            int imax = amrex::max(pTypeArr[i],pTypeArr[pid]);
+                            int k    = imin - 1;
+                            // \Sum_{i=N-k}^{N} (i)
+                            int indx = ntype*(k+1) - (k*(k+1))/2;
+                            // \Sum_{i=1}^{l} (i)
+                            indx += imax - imin;
+                            if (call_check_poly_pair(check_pair, src_ptile_data, dst_ptile_data, i, pid, indx)) {
+                                pm_nbor_list[pnbor_offset[i] + n] = pid;
                                 ++n;
                             }
                         }
@@ -478,10 +506,7 @@ public:
                 }
             }
         });
-
-        amrex::Print() << "CLEARED LOOP2 " << pm_nbor_list[0] << ' ' << pnbor_counts[1] << ' '
-                       << poffset[0] << ' ' << poffset[1] << "\n";
-                                                           
+        
         return PolyTot;
     }
 //

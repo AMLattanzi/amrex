@@ -467,31 +467,30 @@ public:
 
 // AML
 //=================================================================================================================
-//
-    
+//   
     template <typename N, typename M, typename F>
-    int buildPoly (N nitems, T const* v, M& pTypeArr, const Box& bx,
-                   int type1, int type2, int indx, F&& f)
+    int buildPoly (N nitems, T const* v, M& pTypeArr,
+                   const Box& bx, int type, F&& f)
     {
-      return buildPoly(BinPolicy::Default, nitems, v, pTypeArr, bx,
-                       type1, type2, indx, std::forward<F>(f));
+      return buildPoly(BinPolicy::Default, nitems, v, pTypeArr,
+                       bx, type, std::forward<F>(f));
     }
     template <typename N, typename M, typename F>
-    int buildPoly (N nitems, T const* v, M& pTypeArr, int nbins,
-                   int type1, int type2, int indx, F&& f)
+    int buildPoly (N nitems, T const* v, M& pTypeArr,
+                   int nbins, int type, F&& f)
     {
-      return buildPoly(BinPolicy::Default, nitems, v, pTypeArr, nbins,
-                       type1, type2, indx, std::forward<F>(f));
+      return buildPoly(BinPolicy::Default, nitems, v, pTypeArr,
+                       nbins, type, std::forward<F>(f));
     }
     
     template <typename N, typename M, typename F>
-    int buildPoly (BinPolicy::OpenMPBinPolicy, N nitems, T const* v, M& pTypeArr, const Box& bx,
-                   int type1, int type2, int indx, F&& f)
+    int buildPoly (BinPolicy::OpenMPBinPolicy,
+                   N nitems, T const* v, M& pTypeArr,
+                   const Box& bx, int type, F&& f)
     {
         const auto lo = lbound(bx);
         const auto hi = ubound(bx);
-        amrex::Print() << "CHK DB: " << bx.numPts() << "\n";
-        return buildPoly(BinPolicy::OpenMP, nitems, v, pTypeArr, bx.numPts(), type1, type2, indx,
+        return buildPoly(BinPolicy::OpenMP, nitems, v, pTypeArr, bx.numPts(), type,
                          [=] (const T& t) noexcept
                          {
                            auto iv = f(t);
@@ -507,13 +506,11 @@ public:
     }
 
     template <typename N, typename M, typename F>
-    int buildPoly (BinPolicy::OpenMPBinPolicy, N nitems, T const* v, M& pTypeArr, int nbins,
-                   int type1, int type2, int indx, F&& f)
-    {
-      
-      amrex::Print() << "POLY OPENMP " << nbins;
-        
-        BL_PROFILE("DenseBins<T>::buildOpenMP");  
+    int buildPoly (BinPolicy::OpenMPBinPolicy,
+                   N nitems, T const* v, M& pTypeArr,
+                   int nbins, int type, F&& f)
+    {   
+        BL_PROFILE("DenseBinsPoly<T>::buildOpenMP");  
         
         m_items = v;
 
@@ -529,19 +526,9 @@ public:
         m_counts.resize(nbins+1, 0);
         m_offsets.resize(0);
         m_offsets.resize(nbins+1);
-
-        amrex::Print() << ' ' << nitems << ' ' << nchunks << ' ' << chunksize << "\n";
-        for (int i(0); i<5; ++i) {
-          amrex::Print() << "Particle: " << i << "\n";
-          amrex::Print() << v[i] << "\n";
-          amrex::Print() << v[i].NReal << ' ' << v[i].NInt << "\n";
-          amrex::Print() << pTypeArr[i] << ' ' << type1 << ' ' << type2 << ' ' << indx << "\n";
-        } 
-
+        
         // Need to count the number of type1/type2 particles
         int PolyTot(0);
-        
-        amrex::Print() << "We are checking for: " << type1 << ' ' << type2 << ' ' << m_bins[0] << ' ' << nitems << "\n"; 
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel for
@@ -551,17 +538,14 @@ public:
             int istart = j*chunksize;
             int istop = (j == nchunks-1) ? nitems : (j+1)*chunksize;
             for (int i = istart; i < istop; ++i) {
-                if (pTypeArr[i] != type1 && pTypeArr[i] != type2) continue;
+                if (pTypeArr[i] > type) continue;
                 m_bins[i] = f(v[i]);
                 ++counts[nbins*j+m_bins[i]];
                 ++PolyTot;
             }
         }
 
-        amrex::Print() << "Cleared loop 1 DB " << PolyTot << "\n";
-        amrex::Print() << "Vals1: " <<    counts[0] << ' ' <<     counts[1] << ' ' <<    counts[nbins-1] << "\n";
-        amrex::Print() << "Vals2: " <<  m_counts[0] << ' ' <<   m_counts[1] << ' ' <<  m_counts[nbins] << "\n";
-        amrex::Print() << "Vals3: " << m_offsets[0] << ' ' <<  m_offsets[1] << ' ' << m_offsets[nbins] << "\n";
+        // No pairs of relevant types
         if (PolyTot < 2) return PolyTot;
 
 #ifdef AMREX_USE_OMP
@@ -577,21 +561,11 @@ public:
             }
             m_counts[i] = total;
         }
-
-        amrex::Print() << "Cleared loop 2 DB " << "\n";
-        amrex::Print() << "Vals1: " <<    counts[0] << ' ' <<     counts[1] << ' ' <<    counts[nbins-1] << "\n";
-        amrex::Print() << "Vals2: " <<  m_counts[0] << ' ' <<   m_counts[1] << ' ' <<  m_counts[nbins] << "\n";
-        amrex::Print() << "Vals3: " << m_offsets[0] << ' ' <<  m_offsets[1] << ' ' << m_offsets[nbins] << "\n";
         
         // Set offsets with PIC counts
         // note - this part has to be serial
         m_offsets[0] = 0;
         for (int i = 0; i < nbins; ++i) {m_offsets[i+1] = m_offsets[i] + m_counts[i];}
-
-        amrex::Print() << "Cleared loop 3 DB " << "\n";
-        amrex::Print() << "Vals1: " <<    counts[0] << ' ' <<     counts[1] << ' ' <<    counts[nbins-1] << "\n";
-        amrex::Print() << "Vals2: " <<  m_counts[0] << ' ' <<   m_counts[1] << ' ' <<  m_counts[nbins] << "\n";
-        amrex::Print() << "Vals3: " << m_offsets[0] << ' ' <<  m_offsets[1] << ' ' << m_offsets[nbins] << "\n";
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel for
@@ -602,29 +576,18 @@ public:
             }
         }
 
-        amrex::Print() << "Cleared loop 4 DB " << "\n";
-        amrex::Print() << "Vals1: " <<    counts[0] << ' ' <<     counts[1] << ' ' <<    counts[nbins-1] << "\n";
-        amrex::Print() << "Vals2: " <<  m_counts[0] << ' ' <<   m_counts[1] << ' ' <<  m_counts[nbins] << "\n";
-        amrex::Print() << "Vals3: " << m_offsets[0] << ' ' <<  m_offsets[1] << ' ' << m_offsets[nbins] << "\n";
-
 #ifdef AMREX_USE_OMP
 #pragma omp parallel for
 #endif
         for (int j = 0; j < nchunks; ++j) {
             int istart = j*chunksize;
             int istop = (j == nchunks-1) ? nitems : (j+1)*chunksize;
-            for (int i = istart; i < istop; ++i) {
-              //amrex::Print() << "L1: " << m_bins[i] << ' ' << (nbins*j+m_bins[i]) << ' ' << i << ' ' << j << "\n";
-              //amrex::Print() << "L2: " << m_bins.size() << ' ' << m_perm.size() << ' ' << nchunks*nbins*sizeof(index_type) << "\n";
-              //amrex::Print() << "L3: " << counts[nbins*j+m_bins[i]] << "\n";
-              //amrex::Print() << "\n";             
-                if (pTypeArr[i] != type1 && pTypeArr[i] != type2) continue;
+            for (int i = istart; i < istop; ++i) {            
+                if (pTypeArr[i] > type) continue;
                 auto bid = m_bins[i];
                 m_perm[counts[nbins*j+bid]++] = i;
             }
         }
-
-        amrex::Print() << "Cleared loop 5 DB " << m_offsets[0] << ' ' << m_counts[0] << ' ' << m_perm[0] << ' ' << m_bins[0] << "\n";
 
         The_Arena()->free(counts);
 
