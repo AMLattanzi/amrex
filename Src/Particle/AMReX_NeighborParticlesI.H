@@ -861,7 +861,7 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
 
             Box bx = pti.tilebox();
 
-            // Recursive loop to get smallest->largest ordering (e.g., 0-0 0-1 0-2, 1-1 1-2, 2-2 )
+            // Loop grids from smallest->largest
             amrex::Print() << "PolyNeighBuild..." << "\n";
             for (int type(0); type<ntype; ++type) {
                     
@@ -901,26 +901,31 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
             
                     int PolyTot = m_neighbor_list[lev][index].buildPoly(ptile, pTypeArr, lbx, lgeom, type, ntype,
                                                                         std::forward<CheckPair>(check_pair), NGhost);
-
-                    // No pairs of relevant types
-                    if (PolyTot < 2) continue;
+                    // How many pairs counted?
+                    amrex::Print() << "Type & PolyTot: " << type << ' ' << PolyTot << "\n";
                     
-#ifndef AMREX_USE_GPU
-                    const auto& counts = m_neighbor_list[lev][index].GetCounts();
-                    const auto& list   = m_neighbor_list[lev][index].GetList();
-
-                    int li = 0;
-                    for (int i = 0; i < ptile.numParticles(); ++i) {
-                        auto cnt = counts[i];
-                        neighbor_list[lev][index].push_back(cnt);
-                        for (size_t j = 0; j < cnt; ++j) {
-                            neighbor_list[lev][index].push_back(list[li++]+1);
-                        }
-                    }
-                    amrex::Print() << "SIZE CHK: " << neighbor_list[lev][index].size() << "\n";
-#endif
+                    //if (type == 0) goto label;
             }//type
+            
+#ifndef AMREX_USE_GPU
+            const auto& counts = m_neighbor_list[lev][index].GetCounts();
+            const auto& list   = m_neighbor_list[lev][index].GetList();
+            
+            int li = 0;
+            for (int i = 0; i < ptile.numParticles(); ++i) {
+                auto cnt = counts[i];
+                neighbor_list[lev][index].push_back(cnt);
+                for (size_t j = 0; j < cnt; ++j) {
+                    neighbor_list[lev][index].push_back(list[li++]+1);
+                } 
+            }
+            amrex::Print() << "SIZE CHK: " << neighbor_list[lev][index].size() << "\n";
+#endif
         } //ParIter
+    label:
+        printNeighborList();
+        exit(0);
+        
     } //Lev
 }
 //

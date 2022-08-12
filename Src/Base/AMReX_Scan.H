@@ -1365,7 +1365,6 @@ namespace Gpu
         return ++result;
 #endif
     }
-
 }}
 
 #endif

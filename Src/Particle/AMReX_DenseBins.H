@@ -529,6 +529,7 @@ public:
         
         // Need to count the number of type1/type2 particles
         int PolyTot(0);
+        amrex::Print() << "DB: " << nitems << "\n";
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel for
