@@ -527,9 +527,8 @@ public:
         m_offsets.resize(0);
         m_offsets.resize(nbins+1);
         
-        // Need to count the number of type1/type2 particles
+        // Count the number of type1/type2 particles
         int PolyTot(0);
-        amrex::Print() << "DB: " << nitems << "\n";
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel for

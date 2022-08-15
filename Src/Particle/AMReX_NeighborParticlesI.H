@@ -862,7 +862,6 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
             Box bx = pti.tilebox();
 
             // Loop grids from smallest->largest
-            amrex::Print() << "PolyNeighBuild..." << "\n";
             for (int type(0); type<ntype; ++type) {
                     
                     // Domain
@@ -888,6 +887,7 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
                     int NGhost = RefRatio[type]*m_num_neighbor_cells;
                     lbx.grow(NGhost);
 
+                    /*
                     // PASS (I,J,IND) TO BUILDPOLY TO DO APPROPRIATE CYCLING 
                     amrex::Print() << "PAIRS: " << type << "\n";
                     amrex::Print() << bx << ' ' << lbx << ' ' << lbx.numPts() << "\n";
@@ -897,12 +897,12 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
                     amrex::Print() << "\n";
                     //continue;
                     //exit(0);
+                    */
                     
             
-                    int PolyTot = m_neighbor_list[lev][index].buildPoly(ptile, pTypeArr, lbx, lgeom, type, ntype,
-                                                                        std::forward<CheckPair>(check_pair), NGhost);
-                    // How many pairs counted?
-                    amrex::Print() << "Type & PolyTot: " << type << ' ' << PolyTot << "\n";
+                    m_neighbor_list[lev][index].buildPoly(ptile, pTypeArr, lbx, lgeom, type, ntype,
+                                                          std::forward<CheckPair>(check_pair), NGhost);
+
                     
                     //if (type == 0) goto label;
             }//type
@@ -919,12 +919,14 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
                     neighbor_list[lev][index].push_back(list[li++]+1);
                 } 
             }
-            amrex::Print() << "SIZE CHK: " << neighbor_list[lev][index].size() << "\n";
 #endif
         } //ParIter
+        
+        /*
     label:
         printNeighborList();
         exit(0);
+        */
         
     } //Lev
 }

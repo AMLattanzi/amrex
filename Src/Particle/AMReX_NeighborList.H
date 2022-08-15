@@ -332,22 +332,25 @@ public:
                 }
             }
         });
+
+        // DEBUG
+        //amrex::Print() << "NEIGH TOT: " << total_nbors << "\n";
     }
 
 // AML
 //=================================================================================================================
 //
     template <class PTile, class CheckPair, typename M>
-    int buildPoly (PTile& ptile, M& pTypeArr,const amrex::Box& bx,
+    void buildPoly (PTile& ptile, M& pTypeArr,const amrex::Box& bx,
                     const amrex::Geometry& geom, int type, int ntype,
                     CheckPair&& check_pair, int num_cells=1)
     {
-        return buildPoly(ptile, ptile, pTypeArr, bx, geom,
-                         type, ntype, check_pair, num_cells);
+        buildPoly(ptile, ptile, pTypeArr, bx, geom,
+                  type, ntype, check_pair, num_cells);
     }
 
     template <class SrcTile, class TargetTile, class CheckPair, typename M>
-    int buildPoly (SrcTile& src_tile, TargetTile& target_tile, M& pTypeArr,
+    void buildPoly (SrcTile& src_tile, TargetTile& target_tile, M& pTypeArr,
                    const amrex::Box& bx, const amrex::Geometry& geom,
                    int type, int ntype, CheckPair&& check_pair, int num_cells=1)
     {   
@@ -369,21 +372,22 @@ public:
         const auto hi = ubound(bx);
         
         int PolyTot = m_bins.buildPoly(np_total, pstruct_ptr, pTypeArr, bx, type,
-                        [=] AMREX_GPU_DEVICE (const ParticleType& p) noexcept -> IntVect
-                        {
-                            AMREX_D_TERM(AMREX_ASSERT((p.pos(0)-plo[0])*dxi[0] - lo.x >= 0.0);,
-                                         AMREX_ASSERT((p.pos(1)-plo[1])*dxi[1] - lo.y >= 0.0);,
-                                         AMREX_ASSERT((p.pos(2)-plo[2])*dxi[2] - lo.z >= 0.0));
+                      [=] AMREX_GPU_DEVICE (const ParticleType& p) noexcept -> IntVect
+                      {
+                          AMREX_D_TERM(AMREX_ASSERT((p.pos(0)-plo[0])*dxi[0] - lo.x >= 0.0);,
+                                       AMREX_ASSERT((p.pos(1)-plo[1])*dxi[1] - lo.y >= 0.0);,
+                                       AMREX_ASSERT((p.pos(2)-plo[2])*dxi[2] - lo.z >= 0.0));
                             
-                            return IntVect(AMREX_D_DECL(static_cast<int>(amrex::Math::floor((p.pos(0)-plo[0])*dxi[0])) - lo.x,
-                                                        static_cast<int>(amrex::Math::floor((p.pos(1)-plo[1])*dxi[1])) - lo.y,
-                                                        static_cast<int>(amrex::Math::floor((p.pos(2)-plo[2])*dxi[2])) - lo.z));
-                        });
+                          return IntVect(AMREX_D_DECL(static_cast<int>(amrex::Math::floor((p.pos(0)-plo[0])*dxi[0])) - lo.x,
+                                                      static_cast<int>(amrex::Math::floor((p.pos(1)-plo[1])*dxi[1])) - lo.y,
+                                                      static_cast<int>(amrex::Math::floor((p.pos(2)-plo[2])*dxi[2])) - lo.z));
+                      });
 
-        // No type pairs of relevant types
-        if (PolyTot < 2 && type > 0) return PolyTot;
+        // No pairs of relevant types
+        if (PolyTot < 2 && type > 0) return;
         
-        // first pass - count the number of neighbors for each particle
+        // First pass - count the number of neighbors for each particle
+        //---------------------------------------------------------------------------------------------------------
         const size_t np_real  = src_tile.numRealParticles();
         m_nbor_counts.resize(np_real+1, 0);
         m_nbor_offsets.resize(np_real+1);
@@ -444,26 +448,27 @@ public:
             
             pnbor_counts[i] = count;
         });       
-        
+
+        // Second-pas: build the offsets (partial sums) and neighbor list
+        //--------------------------------------------------------------------------------------------------------
         // Size of the neighbor list
         unsigned int total_nbors;
 
-        // Populate new neighbor list
+        // Populate a new neighbor list
+        //*********************************
         if (type == 0) {
 
             // Partial sums of count for each particle
             Gpu::exclusive_scan(m_nbor_counts.begin(), m_nbor_counts.end(), m_nbor_offsets.begin());
 
-            // Allocate space for the neighbor list
+            // Get the total neighbor count
 #ifdef AMREX_USE_GPU
             Gpu::dtoh_memcpy(&total_nbors,m_nbor_offsets.dataPtr()+np_real,sizeof(unsigned int));
 #else
             std::memcpy(&total_nbors,m_nbor_offsets.dataPtr()+np_real,sizeof(unsigned int));
 #endif
-             amrex::Print() << "CLEARED LOOP11 " << total_nbors << ' ' << PolyTot << ' '
-                            << np_real << ' ' << np_total << "\n";
 
-            // Now we can build the actual neighbor list
+            // Build the actual neighbor list
             m_nbor_list.resize(total_nbors);
             auto pm_nbor_list = m_nbor_list.dataPtr();
             
@@ -516,7 +521,8 @@ public:
                 }// ii
             });
 
-        // Insert to existing list
+        // Insert into an existing list
+        //*********************************
         } else {
             
             // Prefix sum to include m_nbor_offsets from previous loops
@@ -525,20 +531,17 @@ public:
                          [pnbor_offset] AMREX_GPU_DEVICE (int i, int const& x) { pnbor_offset[i] += x; },
                          Scan::Type::exclusive, Scan::noRetSum);
 
-            // Allocate space for the neighbor list
+            // Get the total neighbor count
 #ifdef AMREX_USE_GPU
             Gpu::dtoh_memcpy(&total_nbors,m_nbor_offsets.dataPtr()+np_real,sizeof(unsigned int));
 #else
             std::memcpy(&total_nbors,m_nbor_offsets.dataPtr()+np_real,sizeof(unsigned int));
 #endif
 
-            amrex::Print() << "CLEARED LOOP12 " << total_nbors << ' ' << PolyTot << ' '
-                            << np_real << ' ' << np_total << "\n";
-
-            // Now we can add to the existing neighbor list
+            // Address to device vector to call 'insert'
             auto *pm_nbor_list = &m_nbor_list;
 
-            // Use in place of updated offset
+            // Iterator for insertion (occurs at beginning of offset)
             auto it = m_nbor_list.begin();
             
             AMREX_FOR_1D ( np_real, i,
@@ -581,6 +584,10 @@ public:
                                                          src_ptile_data, dst_ptile_data,
                                                          i, pid, indx)) {
                                     pm_nbor_list->insert(it, pid);
+                                    /*
+                                    amrex::Print() << "INSERT: " << i << ' ' << (it - m_nbor_list.begin()) << ' '
+                                                   << pid << "\n";
+                                    */
                                 }
                             }// p
                         }// kk
@@ -588,20 +595,33 @@ public:
                 }// ii
 
                 /*
+                int start = pnbor_offset[i];
+                int end   = pnbor_offset[i+1];
+                amrex::Print() << "NEIGHS: " << i << " Range " << start << ":" << end << " ";
+                for (int j(start); j<end; ++j)
+                    amrex::Print() << (*pm_nbor_list)[j] << " ";
+                amrex::Print() << "\n";
+                amrex::Print() << "\n";
+                */
+                
+                // Set to updated offset
+                auto shift = pnbor_offset[i+1] - pnbor_offset[i];
+                std::advance(it,shift);
+
+                /*
                 // DEBUG
-                if (it != pnbor_offset[i]) {
-                    amrex::Print() << "OSET SIZE ERR: " << type << ' '
-                           << it << ' '
+                if ( (it - m_nbor_list.begin()) != pnbor_offset[i+1] ) {
+                    amrex::Print() << "OSET SIZE ERR: " << i << ' ' << type << ' '
+                           << it - m_nbor_list.begin() << ' '
                            << pnbor_offset[i] << "\n";
                     exit(0);
                 }
                 */
                 
-                // Set to updated offset
-                it += pnbor_offset[i];
             });
         }
 
+        /*
         // DEBUG CHECK
         if (m_nbor_list.size() != total_nbors) {
             amrex::Print() << "NL SIZE ERR: " << type << ' '
@@ -609,8 +629,10 @@ public:
                            << total_nbors << "\n";
             exit(0);
         }
-        
-        return PolyTot;
+        */
+
+        // DEBUG
+        //amrex::Print() << "NEIGH TOT: " << total_nbors << "\n";
     }
 //
 //=================================================================================================================
