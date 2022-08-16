@@ -382,15 +382,15 @@ public:
                                                       static_cast<int>(amrex::Math::floor((p.pos(1)-plo[1])*dxi[1])) - lo.y,
                                                       static_cast<int>(amrex::Math::floor((p.pos(2)-plo[2])*dxi[2])) - lo.z));
                       });
-
-        // No pairs of relevant types
-        if (PolyTot < 2 && type > 0) return;
         
         // First pass - count the number of neighbors for each particle
         //---------------------------------------------------------------------------------------------------------
         const size_t np_real  = src_tile.numRealParticles();
         m_nbor_counts.resize(np_real+1, 0);
-        m_nbor_offsets.resize(np_real+1);
+        m_nbor_offsets.resize(np_real+1, 0);
+
+        // No pairs of relevant types
+        if (PolyTot < 2 && type > 0) return;
 
         auto pnbor_counts = m_nbor_counts.dataPtr();
         auto pnbor_offset = m_nbor_offsets.dataPtr();
@@ -449,7 +449,7 @@ public:
             pnbor_counts[i] = count;
         });       
 
-        // Second-pas: build the offsets (partial sums) and neighbor list
+        // Second-pass: build the offsets (partial sums) and neighbor list
         //--------------------------------------------------------------------------------------------------------
         // Size of the neighbor list
         unsigned int total_nbors;
@@ -526,10 +526,10 @@ public:
         } else {
             
             // Prefix sum to include m_nbor_offsets from previous loops
-            int SumTot = Scan::PrefixSum<int>(np_real + 1,
-                         [pnbor_counts] AMREX_GPU_DEVICE (int i) -> int { return pnbor_counts[i]; },
-                         [pnbor_offset] AMREX_GPU_DEVICE (int i, int const& x) { pnbor_offset[i] += x; },
-                         Scan::Type::exclusive, Scan::noRetSum);
+            unsigned int SumTot = Scan::PrefixSum<unsigned int>(np_real + 1,
+                                  [pnbor_counts] AMREX_GPU_DEVICE (int i) -> unsigned int { return pnbor_counts[i]; },
+                                  [pnbor_offset] AMREX_GPU_DEVICE (int i, unsigned int const& x) { pnbor_offset[i] += x; },
+                                  Scan::Type::exclusive, Scan::noRetSum);
 
             // Get the total neighbor count
 #ifdef AMREX_USE_GPU
@@ -539,6 +539,7 @@ public:
 #endif
 
             // Address to device vector to call 'insert'
+            m_nbor_list.resize(total_nbors);
             auto *pm_nbor_list = &m_nbor_list;
 
             // Iterator for insertion (occurs at beginning of offset)
@@ -583,7 +584,7 @@ public:
                                 if (call_check_poly_pair(check_pair,
                                                          src_ptile_data, dst_ptile_data,
                                                          i, pid, indx)) {
-                                    pm_nbor_list->insert(it, pid);
+                                    it = pm_nbor_list->insert(it, pid);
                                     /*
                                     amrex::Print() << "INSERT: " << i << ' ' << (it - m_nbor_list.begin()) << ' '
                                                    << pid << "\n";
@@ -681,7 +682,6 @@ protected:
 
     // This is the neighbor list data structure
     Gpu::DeviceVector<unsigned int> m_nbor_offsets;
-    Gpu::DeviceVector<unsigned int> m_nbor_offsets_old;
     Gpu::DeviceVector<unsigned int> m_nbor_list;
     Gpu::DeviceVector<unsigned int> m_nbor_counts;
 
