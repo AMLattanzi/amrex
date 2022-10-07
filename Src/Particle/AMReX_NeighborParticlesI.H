@@ -908,6 +908,9 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
             }//type
             
 #ifndef AMREX_USE_GPU
+
+            BL_PROFILE_VAR("CPU_CopyList()",CPUCL);
+            
             const auto& counts = m_neighbor_list[lev][index].GetCounts();
             const auto& list   = m_neighbor_list[lev][index].GetList();
             
@@ -919,6 +922,8 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
                     neighbor_list[lev][index].push_back(list[li++]+1);
                 } 
             }
+
+            BL_PROFILE_VAR_STOP(CPUCL);
 #endif
         } //ParIter
         

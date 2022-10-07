@@ -401,6 +401,8 @@ public:
         const auto src_ptile_data  = src_tile.getConstParticleTileData();
         const auto src_pstruct_ptr = src_tile.GetArrayOfStructs()().dataPtr();
 
+        BL_PROFILE_VAR("PN_Count()",PNC);
+
         AMREX_FOR_1D ( np_real, i,
         {
             if (pTypeArr[i] > type)  continue;
@@ -447,7 +449,9 @@ public:
             }
             
             pnbor_counts[i] = count;
-        });       
+        });
+
+        BL_PROFILE_VAR_STOP(PNC);
 
         // Second-pass: build the offsets (partial sums) and neighbor list
         //--------------------------------------------------------------------------------------------------------
@@ -458,6 +462,8 @@ public:
         //*********************************
         if (type == 0) {
 
+            BL_PROFILE_VAR("PN_List1()",PNL1);
+            
             // Partial sums of count for each particle
             Gpu::exclusive_scan(m_nbor_counts.begin(), m_nbor_counts.end(), m_nbor_offsets.begin());
 
@@ -521,9 +527,12 @@ public:
                 }// ii
             });
 
+            BL_PROFILE_VAR_STOP(PNL1);
+
         // Insert into an existing list
         //*********************************
         } else {
+            BL_PROFILE_VAR("PN_List2()",PNL2);
             
             // Prefix sum to include m_nbor_offsets from previous loops
             unsigned int SumTot = Scan::PrefixSum<unsigned int>(np_real + 1,
@@ -620,6 +629,9 @@ public:
                 */
                 
             });
+
+            BL_PROFILE_VAR_STOP(PNL2);
+            
         }
 
         /*
