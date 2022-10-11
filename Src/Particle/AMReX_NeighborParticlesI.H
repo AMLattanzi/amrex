@@ -862,50 +862,65 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
             Box bx = pti.tilebox();
 
             // Loop grids from smallest->largest
-            for (int type(0); type<ntype; ++type) {
-                    
-                    // Domain
-                    Box dom = geom.Domain();
-                    // Local RealBox
-                    const Real* plo = geom.ProbLo();
-                    const Real* phi = geom.ProbHi();
-                    RealBox lrb(plo,phi);
-                    // Local coordinate system
-                    auto lcoord = geom.Coord();
-                    // Local periodicity
-                    Array<int,AMREX_SPACEDIM> lper = geom.isPeriodic();
-                    
-                    // Refined tile box and domain
-                    Box lbx(   bx.smallEnd(), bx.bigEnd(), bx.ixType() );
-                    Box ldom( dom.smallEnd(),dom.bigEnd(),dom.ixType() );
-                    lbx.refine(  RefRatio[type] );
-                    ldom.refine( RefRatio[type] );
-                    // New geometry with refined domain
-                    Geometry lgeom(ldom,lrb,lcoord,lper);
+            Gpu::DeviceVector<int> off_bins_v(ntype);
+            Gpu::DeviceVector<int> nbins_v(ntype);
+            Gpu::DeviceVector<Dim3> lo_v(ntype);
+            Gpu::DeviceVector<Dim3> hi_v(ntype);
+            Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> dxi_v(ntype);
+            Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> plo_v(ntype);            
+              for (int type(0); type<ntype; ++type) {    
+                // Domain, RB, Coord, Per
+                Box dom = geom.Domain();                    
+                const Real* plo = geom.ProbLo();
+                const Real* phi = geom.ProbHi();
+                auto lcoord = geom.Coord();
+                Array<int,AMREX_SPACEDIM> lper = geom.isPeriodic();
 
-                    // Grow for ghost cells
-                    int NGhost = RefRatio[type]*m_num_neighbor_cells;
-                    lbx.grow(NGhost);
-
-                    /*
-                    // PASS (I,J,IND) TO BUILDPOLY TO DO APPROPRIATE CYCLING 
-                    amrex::Print() << "PAIRS: " << type << "\n";
-                    amrex::Print() << bx << ' ' << lbx << ' ' << lbx.numPts() << "\n";
-                    amrex::Print() << dom << ' ' << ldom << "\n";
-                    amrex::Print() << geom.InvCellSize(0) << ' ' << lgeom.InvCellSize(0) << "\n";
-                    amrex::Print() << bx << ' ' << lbx << "\n";
-                    amrex::Print() << "\n";
-                    //continue;
-                    //exit(0);
-                    */
+                // Refined tile box and domain
+                Box  lbx(  bx.smallEnd(), bx.bigEnd(), bx.ixType() );
+                Box ldom( dom.smallEnd(),dom.bigEnd(),dom.ixType() );
+                 lbx.refine( RefRatio[type] );
+                ldom.refine( RefRatio[type] );
                     
-            
-                    m_neighbor_list[lev][index].buildPoly(ptile, pTypeArr, lbx, lgeom, type, ntype,
-                                                          std::forward<CheckPair>(check_pair), NGhost);
+                // Local copy of RB for refined geom
+                RealBox lrb(plo,phi);
+                                      
+                // New geometry with refined domain
+                Geometry lgeom(ldom,lrb,lcoord,lper);
 
-                    
-                    //if (type == 0) goto label;
-            }//type
+                // Grow for ghost cells
+                int NGhost = RefRatio[type]*m_num_neighbor_cells;
+                lbx.grow(NGhost);
+
+                // Store for memcpy
+                int nbins = lbx.numPts();
+                Dim3 lo = lbound( lbx );
+                Dim3 hi = ubound( lbx );
+
+#ifdef AMREX_USE_GPU
+                Gpu::htod_memcpy( dxi_v.data() + type, lgeom.InvCellSizeArray().data(),
+                                  sizeof(lgeom.InvCellSizeArray()) );
+                Gpu::htod_memcpy( plo_v.data() + type, lgeom.ProbLoArray().data(),
+                                  sizeof(lgeom.ProbLoArray()) );
+                Gpu::htod_memcpy( lo_v.data() + type, &lo, sizeof(lo) );
+                Gpu::htod_memcpy( hi_v.data() + type, &hi, sizeof(hi) );
+                Gpu::htod_memcpy( nbins_v.data() + type, &nbins, sizeof(nbins) );
+#else
+                std::memcpy( dxi_v.data() + type, lgeom.InvCellSizeArray().data(),
+                             sizeof(lgeom.InvCellSizeArray()) );
+                std::memcpy( plo_v.data() + type, lgeom.ProbLoArray().data(),
+                             sizeof(lgeom.ProbLoArray()) );
+                std::memcpy( lo_v.data() + type, &lo, sizeof(lo) );
+                std::memcpy( hi_v.data() + type, &hi, sizeof(hi) );
+                std::memcpy( nbins_v.data() + type, &nbins, sizeof(nbins) );
+#endif
+              }
+
+              Gpu::exclusive_scan(nbins_v.begin(), nbins_v.end(), off_bins_v.begin());
+
+              m_neighbor_list[lev][index].buildPoly(ptile, pTypeArr, ntype,
+                                                    off_bins_v, nbins_v, dxi_v, plo_v, lo_v, hi_v,
+                                                    std::forward<CheckPair>(check_pair), 1);
             
 #ifndef AMREX_USE_GPU
 
@@ -922,6 +937,8 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
                     neighbor_list[lev][index].push_back(list[li++]+1);
                 } 
             }
+
+            amrex::Print() << "NPI CLEARED..." << "\n";
 
             BL_PROFILE_VAR_STOP(CPUCL);
 #endif

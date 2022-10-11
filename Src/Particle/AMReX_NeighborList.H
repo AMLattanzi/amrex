@@ -341,62 +341,73 @@ public:
 //=================================================================================================================
 //
     template <class PTile, class CheckPair, typename M>
-    void buildPoly (PTile& ptile, M& pTypeArr,const amrex::Box& bx,
-                    const amrex::Geometry& geom, int type, int ntype,
+    void buildPoly (PTile& ptile, M& pTypeArr, const int ntype,
+                    Gpu::DeviceVector<int> off_bins_v,
+                    Gpu::DeviceVector<int> nbins_v,
+                    Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> dxi_v,
+                    Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> plo_v,
+                    Gpu::DeviceVector<Dim3> lo_v,
+                    Gpu::DeviceVector<Dim3> hi_v,
                     CheckPair&& check_pair, int num_cells=1)
     {
-        buildPoly(ptile, ptile, pTypeArr, bx, geom,
-                  type, ntype, check_pair, num_cells);
+      buildPoly(ptile, ptile, pTypeArr, ntype,
+                off_bins_v, nbins_v, dxi_v, plo_v, lo_v, hi_v, check_pair, num_cells);
     }
 
     template <class SrcTile, class TargetTile, class CheckPair, typename M>
-    void buildPoly (SrcTile& src_tile, TargetTile& target_tile, M& pTypeArr,
-                   const amrex::Box& bx, const amrex::Geometry& geom,
-                   int type, int ntype, CheckPair&& check_pair, int num_cells=1)
+    void buildPoly (SrcTile& src_tile, TargetTile& target_tile, M& pTypeArr, const int ntype,
+                    Gpu::DeviceVector<int> off_bins_v,
+                    Gpu::DeviceVector<int> nbins_v,
+                    Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> dxi_v,
+                    Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> plo_v,
+                    Gpu::DeviceVector<Dim3> lo_v,
+                    Gpu::DeviceVector<Dim3> hi_v,
+                    CheckPair&& check_pair, int num_cells=1)
     {   
         BL_PROFILE("NeighborList::buildPoly()");
 
         bool is_same = isSame(&src_tile, &target_tile);
 
+        const auto dst_ptile_data = target_tile.getConstParticleTileData();
+        
         auto& vec = target_tile.GetArrayOfStructs()();
+        const auto pstruct_ptr = vec.dataPtr();
+        const size_t np_total  = vec.size();
         m_pstruct = vec.dataPtr();
 
-        const auto dxi = geom.InvCellSizeArray();
-        const auto plo = geom.ProbLoArray();
-
-        const size_t np_total     = vec.size();
-        const auto pstruct_ptr    = vec.dataPtr();
-        const auto dst_ptile_data = target_tile.getConstParticleTileData();
-
-        const auto lo = lbound(bx);
-        const auto hi = ubound(bx);
-        
-        int PolyTot = m_bins.buildPoly(np_total, pstruct_ptr, pTypeArr, bx, type,
-                      [=] AMREX_GPU_DEVICE (const ParticleType& p) noexcept -> IntVect
-                      {
-                          AMREX_D_TERM(AMREX_ASSERT((p.pos(0)-plo[0])*dxi[0] - lo.x >= 0.0);,
-                                       AMREX_ASSERT((p.pos(1)-plo[1])*dxi[1] - lo.y >= 0.0);,
-                                       AMREX_ASSERT((p.pos(2)-plo[2])*dxi[2] - lo.z >= 0.0));
-                            
-                          return IntVect(AMREX_D_DECL(static_cast<int>(amrex::Math::floor((p.pos(0)-plo[0])*dxi[0])) - lo.x,
-                                                      static_cast<int>(amrex::Math::floor((p.pos(1)-plo[1])*dxi[1])) - lo.y,
-                                                      static_cast<int>(amrex::Math::floor((p.pos(2)-plo[2])*dxi[2])) - lo.z));
-                      });
+        auto dxi_p = dxi_v.data();
+        auto plo_p = plo_v.data();
+        auto  lo_p =  lo_v.data();
+        auto  hi_p =  hi_v.data();
+      
+        m_bins.buildPoly(np_total, pstruct_ptr, pTypeArr, ntype, nbins_v, dxi_v, plo_v, lo_v, hi_v,
+        [=] AMREX_GPU_DEVICE (const ParticleType& p, const int type) noexcept -> IntVect
+        {
+          AMREX_D_TERM(AMREX_ASSERT((p.pos(0)-plo_p[type][0])*dxi_p[type][0] - lo_p[type].x >= 0.0);,
+                       AMREX_ASSERT((p.pos(1)-plo_p[type][1])*dxi_p[type][1] - lo_p[type].y >= 0.0);,
+                       AMREX_ASSERT((p.pos(2)-plo_p[type][2])*dxi_p[type][2] - lo_p[type].z >= 0.0));
+          
+          return IntVect(AMREX_D_DECL(static_cast<int>(amrex::Math::floor((p.pos(0)-plo_p[type][0])*dxi_p[type][0])) - lo_p[type].x,
+                                      static_cast<int>(amrex::Math::floor((p.pos(1)-plo_p[type][1])*dxi_p[type][1])) - lo_p[type].y,
+                                      static_cast<int>(amrex::Math::floor((p.pos(2)-plo_p[type][2])*dxi_p[type][2])) - lo_p[type].z));
+        });
         
         // First pass - count the number of neighbors for each particle
         //---------------------------------------------------------------------------------------------------------
-        const size_t np_real  = src_tile.numRealParticles();
-        m_nbor_counts.resize(np_real+1, 0);
-        m_nbor_offsets.resize(np_real+1, 0);
 
-        // No pairs of relevant types
-        if (PolyTot < 2 && type > 0) return;
+        //amrex::Print() << "LP1: " <<"\n";
+                
+        const size_t np_real  = src_tile.numRealParticles();
+        m_nbor_counts.resize (np_real+1, 0);
+        m_nbor_offsets.resize(np_real+1, 0);
 
         auto pnbor_counts = m_nbor_counts.dataPtr();
         auto pnbor_offset = m_nbor_offsets.dataPtr();
-        
-        auto pperm        = m_bins.permutationPtr();
-        auto poffset      = m_bins.offsetsPtr();
+
+        auto pperm   = m_bins.permutationPtr();
+        auto poffset = m_bins.offsetsPtr();
+
+        auto off_bins_p = off_bins_v.data();
 
         const auto src_ptile_data  = src_tile.getConstParticleTileData();
         const auto src_pstruct_ptr = src_tile.GetArrayOfStructs()().dataPtr();
@@ -405,247 +416,152 @@ public:
 
         AMREX_FOR_1D ( np_real, i,
         {
-            if (pTypeArr[i] > type)  continue;
-            bool isn_type(pTypeArr[i] != type);
-            
-            IntVect iv(AMREX_D_DECL(
-                static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(0)-plo[0])*dxi[0])) - lo.x,
-                static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(1)-plo[1])*dxi[1])) - lo.y,
-                static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(2)-plo[2])*dxi[2])) - lo.z));
-            auto iv3 = iv.dim3();
-
-            int ix = iv3.x;
-            int iy = iv3.y;
-            int iz = iv3.z;
-
-            int nx = hi.x-lo.x+1;
-            int ny = hi.y-lo.y+1;
-            int nz = hi.z-lo.z+1;
-
             int count = 0;
-            for (int ii = amrex::max(ix-num_cells, 0); ii <= amrex::min(ix+num_cells, nx-1); ++ii) {
+            int type_start = pTypeArr[i];
+            for (int type(type_start); type<ntype; ++type) {
+              int offset = off_bins_p[type];
+              
+              IntVect iv(AMREX_D_DECL(
+                static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(0)-plo_p[type][0])*dxi_p[type][0])) - lo_p[type].x,
+                static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(1)-plo_p[type][1])*dxi_p[type][1])) - lo_p[type].y,
+                static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(2)-plo_p[type][2])*dxi_p[type][2])) - lo_p[type].z));
+              auto iv3 = iv.dim3();
+
+              int ix = iv3.x;
+              int iy = iv3.y;
+              int iz = iv3.z;
+
+              int nx = hi_p[type].x-lo_p[type].x+1;
+              int ny = hi_p[type].y-lo_p[type].y+1;
+              int nz = hi_p[type].z-lo_p[type].z+1;
+
+              //amrex::Print() << "CELL: " << i << ' ' << type << ' ' << pTypeArr[i] << "\n";
+              
+              for (int ii = amrex::max(ix-num_cells, 0); ii <= amrex::min(ix+num_cells, nx-1); ++ii) {
                 for (int jj = amrex::max(iy-num_cells, 0); jj <= amrex::min(iy+num_cells, ny-1); ++jj) {
-                    for (int kk = amrex::max(iz-num_cells, 0); kk <= amrex::min(iz+num_cells, nz-1); ++kk) {
-                        int index = (ii * ny + jj) * nz + kk;
-                        for (auto p = poffset[index]; p < poffset[index+1]; ++p) {
-                            const auto& pid = pperm[p]; 
-                            if (is_same && (pid == i)) continue;
-                            if (pTypeArr[pid] > type) continue;
-                            if (isn_type && pTypeArr[pid] != type) continue;
-                            // Get index for NEIGHBORHOOD from analytical partial sums
-                            int imin = amrex::min(pTypeArr[i],pTypeArr[pid]);
-                            int imax = amrex::max(pTypeArr[i],pTypeArr[pid]);
-                            int k    = imin - 1;
-                            // \Sum_{i=N-k}^{N} (i)
-                            int indx = ntype*(k+1) - (k*(k+1))/2;
-                            // \Sum_{i=1}^{l} (i)
-                            indx += imax - imin;
-                            if (call_check_poly_pair(check_pair, src_ptile_data, dst_ptile_data, i, pid, indx)) {
-                                count += 1;
-                            }
-                        }
-                    }
-                }
-            }
+                  for (int kk = amrex::max(iz-num_cells, 0); kk <= amrex::min(iz+num_cells, nz-1); ++kk) {
+                    int index = (ii * ny + jj) * nz + kk;
+
+                    //amrex::Print() << "NGH: " << i << ' ' << pTypeArr[i] << ' ' << type << ' ' << poffset[offset+index+1]- poffset[offset+index] <<  "\n";
+                    
+                    for (auto p = poffset[offset+index]; p < poffset[offset+index+1]; ++p) {
+                      const auto& pid = pperm[offset+p]; 
+                      if (is_same && (pid == i)) continue;
+                      // Get index for NEIGHBORHOOD from analytical partial sums
+                      int imin = amrex::min(pTypeArr[i],pTypeArr[pid]);
+                      int imax = amrex::max(pTypeArr[i],pTypeArr[pid]);
+                      int k    = imin - 1;
+                      // \Sum_{i=N-k}^{N} (i)
+                      int indx = ntype*(k+1) - (k*(k+1))/2;
+                      // \Sum_{i=1}^{l} (i)
+                      indx += imax - imin;
+
+                      //amrex::Print() << "CHK: " << indx << ' ' << pid << ' ' << count << "\n";
+                      
+                      if (call_check_poly_pair(check_pair, src_ptile_data, dst_ptile_data, i, pid, indx)) {
+                        count += 1;
+                      }
+                    } // p
+                  } // kk
+                } // jj
+              } // ii
+            } // type
             
             pnbor_counts[i] = count;
+            //amrex::Print() << "COUNT: " << i << ' ' << count << "\n";
+            //if(i>10) exit(0);
         });
 
         BL_PROFILE_VAR_STOP(PNC);
 
         // Second-pass: build the offsets (partial sums) and neighbor list
         //--------------------------------------------------------------------------------------------------------
+
+        //amrex::Print() << "LP2: " <<"\n";
+        
         // Size of the neighbor list
         unsigned int total_nbors;
 
-        // Populate a new neighbor list
-        //*********************************
-        if (type == 0) {
+        BL_PROFILE_VAR("PN_List1()",PNL1);
+        
+        // Partial sums of count for each particle
+        Gpu::exclusive_scan(m_nbor_counts.begin(), m_nbor_counts.end(), m_nbor_offsets.begin());
 
-            BL_PROFILE_VAR("PN_List1()",PNL1);
-            
-            // Partial sums of count for each particle
-            Gpu::exclusive_scan(m_nbor_counts.begin(), m_nbor_counts.end(), m_nbor_offsets.begin());
-
-            // Get the total neighbor count
+        // Get the total neighbor count
 #ifdef AMREX_USE_GPU
-            Gpu::dtoh_memcpy(&total_nbors,m_nbor_offsets.dataPtr()+np_real,sizeof(unsigned int));
+        Gpu::dtoh_memcpy(&total_nbors,m_nbor_offsets.dataPtr()+np_real,sizeof(unsigned int));
 #else
-            std::memcpy(&total_nbors,m_nbor_offsets.dataPtr()+np_real,sizeof(unsigned int));
+        std::memcpy(&total_nbors,m_nbor_offsets.dataPtr()+np_real,sizeof(unsigned int));
 #endif
 
-            // Build the actual neighbor list
-            m_nbor_list.resize(total_nbors);
-            auto pm_nbor_list = m_nbor_list.dataPtr();
+        //amrex::Print() << "TOTAL NEIGH: " << total_nbors << "\n";
+
+        // Build the actual neighbor list
+        m_nbor_list.resize(total_nbors);
+        auto pm_nbor_list = m_nbor_list.dataPtr();
             
-            AMREX_FOR_1D ( np_real, i,
-            {
-                if (pTypeArr[i] > type)  continue;
-                bool isn_type(pTypeArr[i] != type);
-                
-                IntVect iv(AMREX_D_DECL(
-                    static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(0)-plo[0])*dxi[0])) - lo.x,
-                    static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(1)-plo[1])*dxi[1])) - lo.y,
-                    static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(2)-plo[2])*dxi[2])) - lo.z));
-                auto iv3 = iv.dim3();
-
-                int ix = iv3.x;
-                int iy = iv3.y;
-                int iz = iv3.z;
-                
-                int nx = hi.x-lo.x+1;
-                int ny = hi.y-lo.y+1;
-                int nz = hi.z-lo.z+1;
-                
-                int n = 0;
-                for (int ii = amrex::max(ix-num_cells, 0); ii <= amrex::min(ix+num_cells, nx-1); ++ii) {
-                    for (int jj = amrex::max(iy-num_cells, 0); jj <= amrex::min(iy+num_cells, ny-1); ++jj) {
-                        for (int kk = amrex::max(iz-num_cells, 0); kk <= amrex::min(iz+num_cells, nz-1); ++kk) {
-                            int index = (ii * ny + jj) * nz + kk;
-                            for (auto p = poffset[index]; p < poffset[index+1]; ++p) {
-                                const auto& pid = pperm[p]; 
-                                if (is_same && (pid == i)) continue;
-                                if (pTypeArr[pid] > type) continue;
-                                if (isn_type && pTypeArr[pid] != type) continue;
-                                // Get index for NEIGHBORHOOD from analytical partial sums
-                                int imin = amrex::min(pTypeArr[i],pTypeArr[pid]);
-                                int imax = amrex::max(pTypeArr[i],pTypeArr[pid]);
-                                int k    = imin - 1;
-                                // \Sum_{i=N-k}^{N} (i)
-                                int indx = ntype*(k+1) - (k*(k+1))/2;
-                                // \Sum_{i=1}^{l} (i)
-                                indx += imax - imin;
-                                if (call_check_poly_pair(check_pair,
-                                                         src_ptile_data, dst_ptile_data,
-                                                         i, pid, indx)) {
-                                    pm_nbor_list[pnbor_offset[i] + n] = pid;
-                                    ++n;
-                                }
-                            }// p
-                        }// kk
-                    }// jj
-                }// ii
-            });
-
-            BL_PROFILE_VAR_STOP(PNL1);
-
-        // Insert into an existing list
-        //*********************************
-        } else {
-            BL_PROFILE_VAR("PN_List2()",PNL2);
+        AMREX_FOR_1D ( np_real, i,
+        {
+          //amrex::Print() << "LP2: " << i <<"\n";
+          
+          int n = 0;
+          int type_start = pTypeArr[i];
+          for (int type(type_start); type<ntype; ++type) {
+            int offset = off_bins_p[type];
             
-            // Prefix sum to include m_nbor_offsets from previous loops
-            unsigned int SumTot = Scan::PrefixSum<unsigned int>(np_real + 1,
-                                  [pnbor_counts] AMREX_GPU_DEVICE (int i) -> unsigned int { return pnbor_counts[i]; },
-                                  [pnbor_offset] AMREX_GPU_DEVICE (int i, unsigned int const& x) { pnbor_offset[i] += x; },
-                                  Scan::Type::exclusive, Scan::noRetSum);
+            IntVect iv(AMREX_D_DECL(
+                static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(0)-plo_p[type][0])*dxi_p[type][0])) - lo_p[type].x,
+                static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(1)-plo_p[type][1])*dxi_p[type][1])) - lo_p[type].y,
+                static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(2)-plo_p[type][2])*dxi_p[type][2])) - lo_p[type].z));
+            auto iv3 = iv.dim3();
 
-            // Get the total neighbor count
-#ifdef AMREX_USE_GPU
-            Gpu::dtoh_memcpy(&total_nbors,m_nbor_offsets.dataPtr()+np_real,sizeof(unsigned int));
-#else
-            std::memcpy(&total_nbors,m_nbor_offsets.dataPtr()+np_real,sizeof(unsigned int));
-#endif
-
-            // Address to device vector to call 'insert'
-            m_nbor_list.resize(total_nbors);
-            auto *pm_nbor_list = &m_nbor_list;
-
-            // Iterator for insertion (occurs at beginning of offset)
-            auto it = m_nbor_list.begin();
-            
-            AMREX_FOR_1D ( np_real, i,
-            {
-                if (pTypeArr[i] > type)  continue;
-                bool isn_type(pTypeArr[i] != type);
+            int ix = iv3.x;
+            int iy = iv3.y;
+            int iz = iv3.z;
                 
-                IntVect iv(AMREX_D_DECL(
-                    static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(0)-plo[0])*dxi[0])) - lo.x,
-                    static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(1)-plo[1])*dxi[1])) - lo.y,
-                    static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(2)-plo[2])*dxi[2])) - lo.z));
-                auto iv3 = iv.dim3();
+            int nx = hi_p[type].x-lo_p[type].x+1;
+            int ny = hi_p[type].y-lo_p[type].y+1;
+            int nz = hi_p[type].z-lo_p[type].z+1;
 
-                int ix = iv3.x;
-                int iy = iv3.y;
-                int iz = iv3.z;
+            //amrex::Print() << "CELL: " << i << ' ' << type << ' ' << pTypeArr[i] << "\n";
                 
-                int nx = hi.x-lo.x+1;
-                int ny = hi.y-lo.y+1;
-                int nz = hi.z-lo.z+1;
-                
-                for (int ii = amrex::max(ix-num_cells, 0); ii <= amrex::min(ix+num_cells, nx-1); ++ii) {
-                    for (int jj = amrex::max(iy-num_cells, 0); jj <= amrex::min(iy+num_cells, ny-1); ++jj) {
-                        for (int kk = amrex::max(iz-num_cells, 0); kk <= amrex::min(iz+num_cells, nz-1); ++kk) {
-                            int index = (ii * ny + jj) * nz + kk;
-                            for (auto p = poffset[index]; p < poffset[index+1]; ++p) {
-                                const auto& pid = pperm[p]; 
-                                if (is_same && (pid == i)) continue;
-                                if (pTypeArr[pid] > type) continue;
-                                if (isn_type && pTypeArr[pid] != type) continue;
-                                // Get index for NEIGHBORHOOD from analytical partial sums
-                                int imin = amrex::min(pTypeArr[i],pTypeArr[pid]);
-                                int imax = amrex::max(pTypeArr[i],pTypeArr[pid]);
-                                int k    = imin - 1;
-                                // \Sum_{i=N-k}^{N} (i)
-                                int indx = ntype*(k+1) - (k*(k+1))/2;
-                                // \Sum_{i=1}^{l} (i)
-                                indx += imax - imin;
-                                if (call_check_poly_pair(check_pair,
-                                                         src_ptile_data, dst_ptile_data,
-                                                         i, pid, indx)) {
-                                    it = pm_nbor_list->insert(it, pid);
-                                    /*
-                                    amrex::Print() << "INSERT: " << i << ' ' << (it - m_nbor_list.begin()) << ' '
-                                                   << pid << "\n";
-                                    */
-                                }
-                            }// p
-                        }// kk
-                    }// jj
-                }// ii
+            for (int ii = amrex::max(ix-num_cells, 0); ii <= amrex::min(ix+num_cells, nx-1); ++ii) {
+              for (int jj = amrex::max(iy-num_cells, 0); jj <= amrex::min(iy+num_cells, ny-1); ++jj) {
+                for (int kk = amrex::max(iz-num_cells, 0); kk <= amrex::min(iz+num_cells, nz-1); ++kk) {
+                  int index = (ii * ny + jj) * nz + kk;
 
-                /*
-                int start = pnbor_offset[i];
-                int end   = pnbor_offset[i+1];
-                amrex::Print() << "NEIGHS: " << i << " Range " << start << ":" << end << " ";
-                for (int j(start); j<end; ++j)
-                    amrex::Print() << (*pm_nbor_list)[j] << " ";
-                amrex::Print() << "\n";
-                amrex::Print() << "\n";
-                */
-                
-                // Set to updated offset
-                auto shift = pnbor_offset[i+1] - pnbor_offset[i];
-                std::advance(it,shift);
+                  //amrex::Print() << "NGH: " << i << ' ' << type << ' ' << poffset[offset+index+1]- poffset[offset+index] <<  "\n";
+                  
+                  for (auto p = poffset[offset+index]; p < poffset[offset+index+1]; ++p) {
+                    const auto& pid = pperm[offset+p]; 
+                    if (is_same && (pid == i)) continue;
+                    // Get index for NEIGHBORHOOD from analytical partial sums
+                    int imin = amrex::min(pTypeArr[i],pTypeArr[pid]);
+                    int imax = amrex::max(pTypeArr[i],pTypeArr[pid]);
+                    int k    = imin - 1;
+                    // \Sum_{i=N-k}^{N} (i)
+                    int indx = ntype*(k+1) - (k*(k+1))/2;
+                    // \Sum_{i=1}^{l} (i)
+                    indx += imax - imin;
 
-                /*
-                // DEBUG
-                if ( (it - m_nbor_list.begin()) != pnbor_offset[i+1] ) {
-                    amrex::Print() << "OSET SIZE ERR: " << i << ' ' << type << ' '
-                           << it - m_nbor_list.begin() << ' '
-                           << pnbor_offset[i] << "\n";
-                    exit(0);
-                }
-                */
-                
-            });
+                    //amrex::Print() << "CHK: " << indx << ' ' << pid << ' ' << n << ' ' << pnbor_offset[i] << "\n";
+                    
+                    if (call_check_poly_pair(check_pair,
+                                             src_ptile_data, dst_ptile_data,
+                                             i, pid, indx)) {
+                      pm_nbor_list[pnbor_offset[i] + n] = pid;
+                      ++n;
+                    }
+                  }// p
+                }// kk
+              }// jj
+            }// ii
+          } // type
+        });
 
-            BL_PROFILE_VAR_STOP(PNL2);
-            
-        }
+        //amrex::Print() << "NL CLEAR..." << "\n";
 
-        /*
-        // DEBUG CHECK
-        if (m_nbor_list.size() != total_nbors) {
-            amrex::Print() << "NL SIZE ERR: " << type << ' '
-                           << m_nbor_list.size() << ' '
-                           << total_nbors << "\n";
-            exit(0);
-        }
-        */
-
-        // DEBUG
-        //amrex::Print() << "NEIGH TOT: " << total_nbors << "\n";
+        BL_PROFILE_VAR_STOP(PNL1);
     }
 //
 //=================================================================================================================
