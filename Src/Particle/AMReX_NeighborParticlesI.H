@@ -914,7 +914,7 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
                 std::memcpy( hi_v.data() + type, &hi, sizeof(hi) );
                 std::memcpy( nbins_v.data() + type, &nbins, sizeof(nbins) );
 #endif
-              }
+              } // type
 
               Gpu::exclusive_scan(nbins_v.begin(), nbins_v.end(), off_bins_v.begin());
 
@@ -938,14 +938,14 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
                 } 
             }
 
-            amrex::Print() << "NPI CLEARED..." << "\n";
+            //amrex::Print() << "NPI CLEARED..." << "\n";
 
             BL_PROFILE_VAR_STOP(CPUCL);
 #endif
         } //ParIter
         
         /*
-    label:
+        //label:
         printNeighborList();
         exit(0);
         */

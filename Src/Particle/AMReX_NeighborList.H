@@ -419,7 +419,10 @@ public:
             int count = 0;
             int type_start = pTypeArr[i];
             for (int type(type_start); type<ntype; ++type) {
-              int offset = off_bins_p[type];
+              int off_bins = off_bins_p[type] + type;
+              int off_itms = type*np_total;
+
+              //if (i==1) amrex::Print() << "CHK: " << type << ' ' << off_bins << ' ' << off_itms << "\n";
               
               IntVect iv(AMREX_D_DECL(
                 static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(0)-plo_p[type][0])*dxi_p[type][0])) - lo_p[type].x,
@@ -444,22 +447,24 @@ public:
 
                     //amrex::Print() << "NGH: " << i << ' ' << pTypeArr[i] << ' ' << type << ' ' << poffset[offset+index+1]- poffset[offset+index] <<  "\n";
                     
-                    for (auto p = poffset[offset+index]; p < poffset[offset+index+1]; ++p) {
-                      const auto& pid = pperm[offset+p]; 
+                    for (auto p = poffset[off_bins+index]; p < poffset[off_bins+index+1]; ++p) {
+                      const auto& pid = pperm[off_itms+p]; 
                       if (is_same && (pid == i)) continue;
-                      // Get index for NEIGHBORHOOD from analytical partial sums
-                      int imin = amrex::min(pTypeArr[i],pTypeArr[pid]);
-                      int imax = amrex::max(pTypeArr[i],pTypeArr[pid]);
-                      int k    = imin - 1;
-                      // \Sum_{i=N-k}^{N} (i)
-                      int indx = ntype*(k+1) - (k*(k+1))/2;
-                      // \Sum_{i=1}^{l} (i)
-                      indx += imax - imin;
-
-                      //amrex::Print() << "CHK: " << indx << ' ' << pid << ' ' << count << "\n";
-                      
-                      if (call_check_poly_pair(check_pair, src_ptile_data, dst_ptile_data, i, pid, indx)) {
-                        count += 1;
+                      if ( (i < pid) || (type_start < pTypeArr[pid]) ) { // THIS SHOULD BE MOVED 
+                          // Get index for NEIGHBORHOOD from analytical partial sums
+                          int imin = amrex::min(pTypeArr[i],pTypeArr[pid]);
+                          int imax = amrex::max(pTypeArr[i],pTypeArr[pid]);
+                          int k    = imin - 1;
+                          // \Sum_{i=N-k}^{N} (i)
+                          int indx = ntype*(k+1) - (k*(k+1))/2;
+                          // \Sum_{i=1}^{l} (i)
+                          indx += imax - imin;
+                          
+                          //amrex::Print() << "CHK: " << indx << ' ' << pid << ' ' << count << "\n";
+                          
+                          if (call_check_poly_pair(check_pair, src_ptile_data, dst_ptile_data, i, pid, indx)) {
+                              count += 1;
+                          }
                       }
                     } // p
                   } // kk
@@ -482,7 +487,7 @@ public:
         // Size of the neighbor list
         unsigned int total_nbors;
 
-        BL_PROFILE_VAR("PN_List1()",PNL1);
+        BL_PROFILE_VAR("PN_List()",PNL);
         
         // Partial sums of count for each particle
         Gpu::exclusive_scan(m_nbor_counts.begin(), m_nbor_counts.end(), m_nbor_offsets.begin());
@@ -507,7 +512,8 @@ public:
           int n = 0;
           int type_start = pTypeArr[i];
           for (int type(type_start); type<ntype; ++type) {
-            int offset = off_bins_p[type];
+            int off_bins = off_bins_p[type] + type;
+            int off_itms = type*np_total;
             
             IntVect iv(AMREX_D_DECL(
                 static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(0)-plo_p[type][0])*dxi_p[type][0])) - lo_p[type].x,
@@ -532,25 +538,27 @@ public:
 
                   //amrex::Print() << "NGH: " << i << ' ' << type << ' ' << poffset[offset+index+1]- poffset[offset+index] <<  "\n";
                   
-                  for (auto p = poffset[offset+index]; p < poffset[offset+index+1]; ++p) {
-                    const auto& pid = pperm[offset+p]; 
+                  for (auto p = poffset[off_bins+index]; p < poffset[off_bins+index+1]; ++p) {
+                    const auto& pid = pperm[off_itms+p]; 
                     if (is_same && (pid == i)) continue;
-                    // Get index for NEIGHBORHOOD from analytical partial sums
-                    int imin = amrex::min(pTypeArr[i],pTypeArr[pid]);
-                    int imax = amrex::max(pTypeArr[i],pTypeArr[pid]);
-                    int k    = imin - 1;
-                    // \Sum_{i=N-k}^{N} (i)
-                    int indx = ntype*(k+1) - (k*(k+1))/2;
-                    // \Sum_{i=1}^{l} (i)
-                    indx += imax - imin;
+                    if ( (i < pid) || (type_start < pTypeArr[pid]) ) { // THIS SHOULD BE MOVED 
+                        // Get index for NEIGHBORHOOD from analytical partial sums
+                        int imin = amrex::min(pTypeArr[i],pTypeArr[pid]);
+                        int imax = amrex::max(pTypeArr[i],pTypeArr[pid]);
+                        int k    = imin - 1;
+                        // \Sum_{i=N-k}^{N} (i)
+                        int indx = ntype*(k+1) - (k*(k+1))/2;
+                        // \Sum_{i=1}^{l} (i)
+                        indx += imax - imin;
 
-                    //amrex::Print() << "CHK: " << indx << ' ' << pid << ' ' << n << ' ' << pnbor_offset[i] << "\n";
+                        //amrex::Print() << "CHK: " << indx << ' ' << pid << ' ' << n << ' ' << pnbor_offset[i] << "\n";
                     
-                    if (call_check_poly_pair(check_pair,
-                                             src_ptile_data, dst_ptile_data,
-                                             i, pid, indx)) {
-                      pm_nbor_list[pnbor_offset[i] + n] = pid;
-                      ++n;
+                        if (call_check_poly_pair(check_pair,
+                                                 src_ptile_data, dst_ptile_data,
+                                                 i, pid, indx)) {
+                            pm_nbor_list[pnbor_offset[i] + n] = pid;
+                            ++n;
+                        }
                     }
                   }// p
                 }// kk
@@ -561,7 +569,7 @@ public:
 
         //amrex::Print() << "NL CLEAR..." << "\n";
 
-        BL_PROFILE_VAR_STOP(PNL1);
+        BL_PROFILE_VAR_STOP(PNL);
     }
 //
 //=================================================================================================================

@@ -524,36 +524,42 @@ public:
 
         //amrex::Print() << "DENSE BINS: " << "\n";
 
-        m_bins.resize(0);
-        m_perm.resize(0);
-        m_counts.resize(0);
+           m_bins.resize(0);
+           m_perm.resize(0);
+         m_counts.resize(0);
         m_offsets.resize(0);
 
         auto nbins_p = nbins_v.data();;
 
-        int off_bins;
-        int tot_bins = 0;
+        int off_itms , tot_itms;
+        int off_bins , tot_bins;
+        int size_prev, size_new;
         for (int type(0); type<ntype; ++type) {
           // Bin count for current grid
           int nbins = nbins_p[type];
-
-          // Offset and total size
-          off_bins  = tot_bins;
-          tot_bins += nbins;
-
-          //amrex::Print() << "VALS: " << nbins << ' ' << off_bins << ' ' << tot_bins << ' ' << nitems << "\n";
-          //amrex::Print() << "SIZE-PRE: " << m_bins.size() << ' ' << m_counts.size() << "\n";
           
-          // Resize the device vectors
-          int size_prev = m_bins.size();
-          m_bins.resize( size_prev + nitems );
-          m_perm.resize( size_prev + nitems );
+          // Resize the device vectors for items
+          size_prev = m_bins.size();
+          size_new  = size_prev + nitems;
+          m_bins.resize( size_new );
+          m_perm.resize( size_new );
+          off_itms = size_prev;
+          tot_itms = size_new;
 
+          //amrex::Print() << "VALS: " << nbins << ' ' <<  nitems << "\n";
+          //amrex::Print() << "SIZE-PAR: " << size_prev << ' ' << size_new << "\n";
+          //amrex::Print() << "OFFS-PAR: " << off_itms << ' ' << tot_itms << "\n";
+          
+          // Resize the device vectors for bins
           size_prev = m_counts.size();
-          m_counts.resize(  size_prev + nbins + 1 );
-          m_offsets.resize( size_prev + nbins + 1 );
-
-          //amrex::Print() << "SIZE-POS: " << m_bins.size() << ' ' << m_counts.size() << "\n";
+          size_new  = size_prev + nbins + 1;
+          m_counts.resize ( size_new );
+          m_offsets.resize( size_new );
+          off_bins = size_prev;
+          tot_bins = size_new;
+             
+          //amrex::Print() << "SIZE-BIN: " << size_prev << ' ' << size_new << "\n";
+          //amrex::Print() << "OFFS-BIN: " << off_bins << ' ' << tot_bins << "\n";
           //amrex::Print() << "\n";
 
           // Set count to 0 in desired region
@@ -574,8 +580,8 @@ public:
             int istop = (j == nchunks-1) ? nitems : (j+1)*chunksize;
             for (int i = istart; i < istop; ++i) {
               if (pTypeArr[i] != type) continue;
-              m_bins[i+off_bins] = f(v[i],type);
-              ++counts[nbins*j+m_bins[i+off_bins]];
+              m_bins[i+off_itms] = f(v[i],type);
+              ++counts[nbins*j+m_bins[i+off_itms]];
             }
           }
 
@@ -616,8 +622,8 @@ public:
             int istop = (j == nchunks-1) ? nitems : (j+1)*chunksize;
             for (int i = istart; i < istop; ++i) {
               if (pTypeArr[i] != type) continue;
-              auto bid = m_bins[off_bins+i];
-              m_perm[off_bins + counts[nbins*j+bid]++] = i;
+              auto bid = m_bins[off_itms+i];
+              m_perm[off_itms + counts[nbins*j+bid]++] = i;
             }
           }
 
