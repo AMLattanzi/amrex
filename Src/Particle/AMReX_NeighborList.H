@@ -375,12 +375,14 @@ public:
         const size_t np_total  = vec.size();
         m_pstruct = vec.dataPtr();
 
+        const size_t np_real  = src_tile.numRealParticles();
+
         auto dxi_p = dxi_v.data();
         auto plo_p = plo_v.data();
         auto  lo_p =  lo_v.data();
         auto  hi_p =  hi_v.data();
       
-        m_bins.buildPoly(np_total, pstruct_ptr, pTypeArr, ntype, nbins_v, dxi_v, plo_v, lo_v, hi_v,
+        m_bins.buildPoly(np_total, np_real, pstruct_ptr, pTypeArr, ntype, nbins_v, dxi_v, plo_v, lo_v, hi_v,
         [=] AMREX_GPU_DEVICE (const ParticleType& p, const int type) noexcept -> IntVect
         {
           AMREX_D_TERM(AMREX_ASSERT((p.pos(0)-plo_p[type][0])*dxi_p[type][0] - lo_p[type].x >= 0.0);,
@@ -396,8 +398,7 @@ public:
         //---------------------------------------------------------------------------------------------------------
 
         //amrex::Print() << "LP1: " <<"\n";
-                
-        const size_t np_real  = src_tile.numRealParticles();
+
         m_nbor_counts.resize (np_real+1, 0);
         m_nbor_offsets.resize(np_real+1, 0);
 
@@ -450,7 +451,22 @@ public:
                     for (auto p = poffset[off_bins+index]; p < poffset[off_bins+index+1]; ++p) {
                       const auto& pid = pperm[off_itms+p]; 
                       if (is_same && (pid == i)) continue;
-                      if ( (i < pid) || (type_start < pTypeArr[pid]) ) { // THIS SHOULD BE MOVED 
+
+                      /*
+                      if ((pTypeArr[i]==1) && (pid >= 20496) && (pTypeArr[pid]==0)) {
+                          amrex::Print() << "SEARCHING GHOST: " << i << '-' << pid << ' '
+                                         << pTypeArr[i] << ' ' << pTypeArr[pid] << "\n";
+                      }
+                      */
+
+                      /*
+                      if ((pTypeArr[i]==0) && (pid >= 20496) && (pTypeArr[pid]==1)) {
+                          amrex::Print() << "SEARCHING GHOST: " << i << '-' << pid << ' '
+                                         << pTypeArr[i] << ' ' << pTypeArr[pid] << "\n";
+                      }
+                      */
+                      
+                      //if ( (i < pid) || (type_start < pTypeArr[pid]) ) { // THIS SHOULD BE MOVED 
                           // Get index for NEIGHBORHOOD from analytical partial sums
                           int imin = amrex::min(pTypeArr[i],pTypeArr[pid]);
                           int imax = amrex::max(pTypeArr[i],pTypeArr[pid]);
@@ -465,7 +481,7 @@ public:
                           if (call_check_poly_pair(check_pair, src_ptile_data, dst_ptile_data, i, pid, indx)) {
                               count += 1;
                           }
-                      }
+                          //}
                     } // p
                   } // kk
                 } // jj
@@ -541,7 +557,7 @@ public:
                   for (auto p = poffset[off_bins+index]; p < poffset[off_bins+index+1]; ++p) {
                     const auto& pid = pperm[off_itms+p]; 
                     if (is_same && (pid == i)) continue;
-                    if ( (i < pid) || (type_start < pTypeArr[pid]) ) { // THIS SHOULD BE MOVED 
+                    //if ( (i < pid) || (type_start < pTypeArr[pid]) ) { // THIS SHOULD BE MOVED 
                         // Get index for NEIGHBORHOOD from analytical partial sums
                         int imin = amrex::min(pTypeArr[i],pTypeArr[pid]);
                         int imax = amrex::max(pTypeArr[i],pTypeArr[pid]);
@@ -559,7 +575,7 @@ public:
                             pm_nbor_list[pnbor_offset[i] + n] = pid;
                             ++n;
                         }
-                    }
+                        //}
                   }// p
                 }// kk
               }// jj

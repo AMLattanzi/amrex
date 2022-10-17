@@ -469,7 +469,7 @@ public:
 //=================================================================================================================
 //   
     template <typename N, typename M, typename F>
-    void buildPoly (N nitems, T const* v, M& pTypeArr,
+    void buildPoly (N nitems, N nreal, T const* v, M& pTypeArr,
                     const int ntype,
                     Gpu::DeviceVector<int> nbins_v,
                     Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> dxi_v,
@@ -478,13 +478,13 @@ public:
                     Gpu::DeviceVector<Dim3> hi_v,
                     F&& f)
     {
-      buildPoly(BinPolicy::Default, nitems, v, pTypeArr, ntype, nbins_v,
+        buildPoly(BinPolicy::Default, nitems, nreal, v, pTypeArr, ntype, nbins_v,
                 dxi_v, plo_v, lo_v, hi_v, std::forward<F>(f));
     }
     
     template <typename N, typename M, typename F>
     void buildPoly (BinPolicy::OpenMPBinPolicy,
-                    N nitems, T const* v, M& pTypeArr,
+                    N nitems, N nreal, T const* v, M& pTypeArr,
                     const int ntype,
                     Gpu::DeviceVector<int> nbins_v,
                     Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> dxi_v,
@@ -496,7 +496,7 @@ public:
         auto hi_p = hi_v.data();
         auto lo_p = lo_v.data();
         
-        buildPoly(BinPolicy::OpenMP, nitems, v, pTypeArr, ntype, nbins_v,
+        buildPoly(BinPolicy::OpenMP, nitems, nreal, v, pTypeArr, ntype, nbins_v,
         [=] (const T& t, const int type) noexcept
         {
           auto iv  = f(t,type);
@@ -513,7 +513,7 @@ public:
 
     template <typename N, typename M, typename F>
     void buildPoly (BinPolicy::OpenMPBinPolicy,
-                    N nitems, T const* v, M& pTypeArr,
+                    N nitems, N nreal, T const* v, M& pTypeArr,
                     const int ntype,
                     Gpu::DeviceVector<int> nbins_v,
                     F&& f)
@@ -522,7 +522,10 @@ public:
         
         m_items = v;
 
-        //amrex::Print() << "DENSE BINS: " << "\n";
+        /*
+        amrex::Print() << "DENSE BINS: " << nitems << ' ' << nreal << ' '
+                       << pTypeArr[20482] << '-' << pTypeArr[30105] << "\n";
+        */
 
            m_bins.resize(0);
            m_perm.resize(0);
@@ -579,9 +582,22 @@ public:
             int istart = j*chunksize;
             int istop = (j == nchunks-1) ? nitems : (j+1)*chunksize;
             for (int i = istart; i < istop; ++i) {
+              /*
               if (pTypeArr[i] != type) continue;
               m_bins[i+off_itms] = f(v[i],type);
               ++counts[nbins*j+m_bins[i+off_itms]];
+              */
+                
+              
+              if ((i >= nreal) && (pTypeArr[i] <= type)) {
+                  m_bins[i+off_itms] = f(v[i],type);
+                  ++counts[nbins*j+m_bins[i+off_itms]];
+              } else {               
+                  if (pTypeArr[i] != type) continue;
+                  m_bins[i+off_itms] = f(v[i],type);
+                  ++counts[nbins*j+m_bins[i+off_itms]];
+              }
+              
             }
           }
 
@@ -621,14 +637,36 @@ public:
             int istart = j*chunksize;
             int istop = (j == nchunks-1) ? nitems : (j+1)*chunksize;
             for (int i = istart; i < istop; ++i) {
+              /*
               if (pTypeArr[i] != type) continue;
               auto bid = m_bins[off_itms+i];
               m_perm[off_itms + counts[nbins*j+bid]++] = i;
+              */
+                
+              
+              if ((i >= nreal) && (pTypeArr[i] <= type)) {
+                  auto bid = m_bins[off_itms+i];
+                  m_perm[off_itms + counts[nbins*j+bid]++] = i;
+              } else {
+                  if (pTypeArr[i] != type) continue;
+                  auto bid = m_bins[off_itms+i];
+                  m_perm[off_itms + counts[nbins*j+bid]++] = i;
+              }
+              
             }
           }
 
           The_Arena()->free(counts);
         }
+
+        /*
+        int cnt1(0), cnt2(0);
+        for (int i(0); i<nreal; ++i) {
+            if (pTypeArr[i] == 0) ++cnt1;
+            if (pTypeArr[i] == 1) ++cnt2;
+        }
+        amrex::Print() << "Ntype Real: " << cnt1 << ' ' << cnt2 << "\n";
+        */
     }
 //
 //=================================================================================================================

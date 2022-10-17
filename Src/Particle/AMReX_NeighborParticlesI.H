@@ -732,6 +732,31 @@ buildNeighborList (CheckPair&& check_pair, bool /*sort*/)
             m_neighbor_list[lev][index].build(ptile, bx, geom,
                           std::forward<CheckPair>(check_pair),
                           computeRefFac(0, lev).max()*m_num_neighbor_cells);
+
+            // DEBUG: Sort the list
+              const auto& offset = m_neighbor_list[lev][index].GetOffsets();
+              auto& nlist  = m_neighbor_list[lev][index].GetList();
+              int npar = offset.size() - 1;
+              for (int i = 0; i < npar; ++i) {
+
+                  // Sort the temp vector for debugging
+                  unsigned int size = offset[i+1] - offset[i]; 
+                  Gpu::HostVector<unsigned int> nbor_list_sort(size);
+                  int k = 0;
+                  for (unsigned int j = offset[i]; j < offset[i+1]; ++j) {
+                      nbor_list_sort[k] = nlist[j];
+                      ++k;
+                  }
+                  
+                  std::sort(nbor_list_sort.begin(), nbor_list_sort.end());
+
+                  k = 0;
+                  for (unsigned int j = offset[i]; j < offset[i+1]; ++j) {
+                      nlist[j] = nbor_list_sort[k];
+                      ++k;
+                  }
+              }
+              
 #ifndef AMREX_USE_GPU
             const auto& counts = m_neighbor_list[lev][index].GetCounts();
             const auto& list   = m_neighbor_list[lev][index].GetList();
@@ -921,26 +946,50 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
               m_neighbor_list[lev][index].buildPoly(ptile, pTypeArr, ntype,
                                                     off_bins_v, nbins_v, dxi_v, plo_v, lo_v, hi_v,
                                                     std::forward<CheckPair>(check_pair), 1);
+
+              // DEBUG: Sort the list
+              const auto& offset = m_neighbor_list[lev][index].GetOffsets();
+              auto& nlist  = m_neighbor_list[lev][index].GetList();
+              int npar = offset.size() - 1;
+              for (int i = 0; i < npar; ++i) {
+
+                  // Sort the temp vector for debugging
+                  unsigned int size = offset[i+1] - offset[i]; 
+                  Gpu::HostVector<unsigned int> nbor_list_sort(size);
+                  int k = 0;
+                  for (unsigned int j = offset[i]; j < offset[i+1]; ++j) {
+                      nbor_list_sort[k] = nlist[j];
+                      ++k;
+                  }
+                  
+                  std::sort(nbor_list_sort.begin(), nbor_list_sort.end());
+
+                  k = 0;
+                  for (unsigned int j = offset[i]; j < offset[i+1]; ++j) {
+                      nlist[j] = nbor_list_sort[k];
+                      ++k;
+                  }
+              }
             
 #ifndef AMREX_USE_GPU
 
-            BL_PROFILE_VAR("CPU_CopyList()",CPUCL);
+              BL_PROFILE_VAR("CPU_CopyList()",CPUCL);
             
-            const auto& counts = m_neighbor_list[lev][index].GetCounts();
-            const auto& list   = m_neighbor_list[lev][index].GetList();
+              const auto& counts = m_neighbor_list[lev][index].GetCounts();
+              const auto& list   = m_neighbor_list[lev][index].GetList();
             
-            int li = 0;
-            for (int i = 0; i < ptile.numParticles(); ++i) {
-                auto cnt = counts[i];
-                neighbor_list[lev][index].push_back(cnt);
-                for (size_t j = 0; j < cnt; ++j) {
-                    neighbor_list[lev][index].push_back(list[li++]+1);
-                } 
-            }
-
+              int li = 0;
+              for (int i = 0; i < ptile.numParticles(); ++i) {
+                  auto cnt = counts[i];
+                  neighbor_list[lev][index].push_back(cnt);
+                  for (size_t j = 0; j < cnt; ++j) {
+                      neighbor_list[lev][index].push_back(list[li++]+1);
+                  } 
+              }
+              
             //amrex::Print() << "NPI CLEARED..." << "\n";
 
-            BL_PROFILE_VAR_STOP(CPUCL);
+              BL_PROFILE_VAR_STOP(CPUCL);
 #endif
         } //ParIter
         
