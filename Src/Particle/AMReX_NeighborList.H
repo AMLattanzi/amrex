@@ -396,9 +396,6 @@ public:
         
         // First pass - count the number of neighbors for each particle
         //---------------------------------------------------------------------------------------------------------
-
-        //amrex::Print() << "LP1: " <<"\n";
-
         m_nbor_counts.resize (np_real+1, 0);
         m_nbor_offsets.resize(np_real+1, 0);
 
@@ -418,12 +415,10 @@ public:
         AMREX_FOR_1D ( np_real, i,
         {
             int count = 0;
-            int type_start = pTypeArr[i];
-            for (int type(type_start); type<ntype; ++type) {
+            int type_i = pTypeArr[i];
+            for (int type(type_i); type<ntype; ++type) {
               int off_bins = off_bins_p[type] + type;
               int off_itms = type*np_total;
-
-              //if (i==1) amrex::Print() << "CHK: " << type << ' ' << off_bins << ' ' << off_itms << "\n";
               
               IntVect iv(AMREX_D_DECL(
                 static_cast<int>(amrex::Math::floor((src_pstruct_ptr[i].pos(0)-plo_p[type][0])*dxi_p[type][0])) - lo_p[type].x,
@@ -438,50 +433,31 @@ public:
               int nx = hi_p[type].x-lo_p[type].x+1;
               int ny = hi_p[type].y-lo_p[type].y+1;
               int nz = hi_p[type].z-lo_p[type].z+1;
-
-              //amrex::Print() << "CELL: " << i << ' ' << type << ' ' << pTypeArr[i] << "\n";
               
               for (int ii = amrex::max(ix-num_cells, 0); ii <= amrex::min(ix+num_cells, nx-1); ++ii) {
                 for (int jj = amrex::max(iy-num_cells, 0); jj <= amrex::min(iy+num_cells, ny-1); ++jj) {
                   for (int kk = amrex::max(iz-num_cells, 0); kk <= amrex::min(iz+num_cells, nz-1); ++kk) {
                     int index = (ii * ny + jj) * nz + kk;
-
-                    //amrex::Print() << "NGH: " << i << ' ' << pTypeArr[i] << ' ' << type << ' ' << poffset[offset+index+1]- poffset[offset+index] <<  "\n";
                     
                     for (auto p = poffset[off_bins+index]; p < poffset[off_bins+index+1]; ++p) {
-                      const auto& pid = pperm[off_itms+p]; 
+                      const auto& pid      = pperm[off_itms+p];
+                      const auto& type_pid = pTypeArr[pid];
                       if (is_same && (pid == i)) continue;
-
-                      /*
-                      if ((pTypeArr[i]==1) && (pid >= 20496) && (pTypeArr[pid]==0)) {
-                          amrex::Print() << "SEARCHING GHOST: " << i << '-' << pid << ' '
-                                         << pTypeArr[i] << ' ' << pTypeArr[pid] << "\n";
-                      }
-                      */
-
-                      /*
-                      if ((pTypeArr[i]==0) && (pid >= 20496) && (pTypeArr[pid]==1)) {
-                          amrex::Print() << "SEARCHING GHOST: " << i << '-' << pid << ' '
-                                         << pTypeArr[i] << ' ' << pTypeArr[pid] << "\n";
-                      }
-                      */
-                      
-                      //if ( (i < pid) || (type_start < pTypeArr[pid]) ) { // THIS SHOULD BE MOVED 
+                      if ((type_i != type) && (type_pid != type)) continue;
+                      if ((i < pid) || (type_i < type_pid)) { // THIS SHOULD BE MOVED 
                           // Get index for NEIGHBORHOOD from analytical partial sums
-                          int imin = amrex::min(pTypeArr[i],pTypeArr[pid]);
-                          int imax = amrex::max(pTypeArr[i],pTypeArr[pid]);
+                          int imin = amrex::min(type_i,type_pid);
+                          int imax = amrex::max(type_i,type_pid);
                           int k    = imin - 1;
                           // \Sum_{i=N-k}^{N} (i)
                           int indx = ntype*(k+1) - (k*(k+1))/2;
                           // \Sum_{i=1}^{l} (i)
                           indx += imax - imin;
                           
-                          //amrex::Print() << "CHK: " << indx << ' ' << pid << ' ' << count << "\n";
-                          
                           if (call_check_poly_pair(check_pair, src_ptile_data, dst_ptile_data, i, pid, indx)) {
                               count += 1;
                           }
-                          //}
+                      }
                     } // p
                   } // kk
                 } // jj
@@ -489,16 +465,12 @@ public:
             } // type
             
             pnbor_counts[i] = count;
-            //amrex::Print() << "COUNT: " << i << ' ' << count << "\n";
-            //if(i>10) exit(0);
         });
 
         BL_PROFILE_VAR_STOP(PNC);
 
         // Second-pass: build the offsets (partial sums) and neighbor list
         //--------------------------------------------------------------------------------------------------------
-
-        //amrex::Print() << "LP2: " <<"\n";
         
         // Size of the neighbor list
         unsigned int total_nbors;
@@ -515,19 +487,15 @@ public:
         std::memcpy(&total_nbors,m_nbor_offsets.dataPtr()+np_real,sizeof(unsigned int));
 #endif
 
-        //amrex::Print() << "TOTAL NEIGH: " << total_nbors << "\n";
-
         // Build the actual neighbor list
         m_nbor_list.resize(total_nbors);
         auto pm_nbor_list = m_nbor_list.dataPtr();
             
         AMREX_FOR_1D ( np_real, i,
-        {
-          //amrex::Print() << "LP2: " << i <<"\n";
-          
+        {          
           int n = 0;
-          int type_start = pTypeArr[i];
-          for (int type(type_start); type<ntype; ++type) {
+          int type_i = pTypeArr[i];
+          for (int type(type_i); type<ntype; ++type) {
             int off_bins = off_bins_p[type] + type;
             int off_itms = type*np_total;
             
@@ -544,47 +512,39 @@ public:
             int nx = hi_p[type].x-lo_p[type].x+1;
             int ny = hi_p[type].y-lo_p[type].y+1;
             int nz = hi_p[type].z-lo_p[type].z+1;
-
-            //amrex::Print() << "CELL: " << i << ' ' << type << ' ' << pTypeArr[i] << "\n";
                 
             for (int ii = amrex::max(ix-num_cells, 0); ii <= amrex::min(ix+num_cells, nx-1); ++ii) {
               for (int jj = amrex::max(iy-num_cells, 0); jj <= amrex::min(iy+num_cells, ny-1); ++jj) {
                 for (int kk = amrex::max(iz-num_cells, 0); kk <= amrex::min(iz+num_cells, nz-1); ++kk) {
                   int index = (ii * ny + jj) * nz + kk;
-
-                  //amrex::Print() << "NGH: " << i << ' ' << type << ' ' << poffset[offset+index+1]- poffset[offset+index] <<  "\n";
                   
                   for (auto p = poffset[off_bins+index]; p < poffset[off_bins+index+1]; ++p) {
-                    const auto& pid = pperm[off_itms+p]; 
+                    const auto& pid      = pperm[off_itms+p];
+                    const auto& type_pid = pTypeArr[pid];  
                     if (is_same && (pid == i)) continue;
-                    //if ( (i < pid) || (type_start < pTypeArr[pid]) ) { // THIS SHOULD BE MOVED 
+                    if ((type_i != type) && (type_pid != type)) continue;
+                    if ((i < pid) || (type_i < type_pid)) { // THIS SHOULD BE MOVED 
                         // Get index for NEIGHBORHOOD from analytical partial sums
-                        int imin = amrex::min(pTypeArr[i],pTypeArr[pid]);
-                        int imax = amrex::max(pTypeArr[i],pTypeArr[pid]);
+                        int imin = amrex::min(type_i,type_pid);
+                        int imax = amrex::max(type_i,type_pid);
                         int k    = imin - 1;
                         // \Sum_{i=N-k}^{N} (i)
                         int indx = ntype*(k+1) - (k*(k+1))/2;
                         // \Sum_{i=1}^{l} (i)
-                        indx += imax - imin;
-
-                        //amrex::Print() << "CHK: " << indx << ' ' << pid << ' ' << n << ' ' << pnbor_offset[i] << "\n";
-                    
+                        indx += imax - imin;                    
                         if (call_check_poly_pair(check_pair,
                                                  src_ptile_data, dst_ptile_data,
                                                  i, pid, indx)) {
                             pm_nbor_list[pnbor_offset[i] + n] = pid;
                             ++n;
                         }
-                        //}
+                    }
                   }// p
                 }// kk
               }// jj
             }// ii
           } // type
         });
-
-        //amrex::Print() << "NL CLEAR..." << "\n";
-
         BL_PROFILE_VAR_STOP(PNL);
     }
 //

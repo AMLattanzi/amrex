@@ -587,8 +587,25 @@ public:
               m_bins[i+off_itms] = f(v[i],type);
               ++counts[nbins*j+m_bins[i+off_itms]];
               */
-                
+
+              /*
+              if (i <  nreal){
+                  if (pTypeArr[i] != type) continue;
+                  m_bins[i+off_itms] = f(v[i],type);
+                  ++counts[nbins*j+m_bins[i+off_itms]];
+              } else {
+                  if (pTypeArr[i] > type) continue;
+                  m_bins[i+off_itms] = f(v[i],type);
+                  ++counts[nbins*j+m_bins[i+off_itms]];
+              }
+              */
               
+              if ((i <  nreal) && (pTypeArr[i] != type)) continue;
+              if ((i >= nreal) && (pTypeArr[i]  > type)) continue;
+              m_bins[i+off_itms] = f(v[i],type);
+              ++counts[nbins*j+m_bins[i+off_itms]];
+
+              /*
               if ((i >= nreal) && (pTypeArr[i] <= type)) {
                   m_bins[i+off_itms] = f(v[i],type);
                   ++counts[nbins*j+m_bins[i+off_itms]];
@@ -597,6 +614,7 @@ public:
                   m_bins[i+off_itms] = f(v[i],type);
                   ++counts[nbins*j+m_bins[i+off_itms]];
               }
+              */
               
             }
           }
@@ -620,6 +638,8 @@ public:
           // note - this part has to be serial
           m_offsets[off_bins] = 0;
           for (int i = 0; i < nbins; ++i) {m_offsets[off_bins+i+1] = m_offsets[off_bins+i] + m_counts[off_bins+i];}
+
+          //amrex::Print() << "OFFSETS: " << type << ' ' << off_bins+nbins << ' ' << m_offsets[off_bins+nbins] << "\n";
           
 #ifdef AMREX_USE_OMP
 #pragma omp parallel for
@@ -642,8 +662,25 @@ public:
               auto bid = m_bins[off_itms+i];
               m_perm[off_itms + counts[nbins*j+bid]++] = i;
               */
+
+                /*
+              if (i <  nreal){
+                  if (pTypeArr[i] != type) continue;
+                  auto bid = m_bins[off_itms+i];
+                  m_perm[off_itms + counts[nbins*j+bid]++] = i;
+              } else {
+                  if (pTypeArr[i] > type) continue;
+                  auto bid = m_bins[off_itms+i];
+                  m_perm[off_itms + counts[nbins*j+bid]++] = i;
+              }
+              */
                 
-              
+              if ((i <  nreal) && (pTypeArr[i] != type)) continue;
+              if ((i >= nreal) && (pTypeArr[i]  > type)) continue;
+              auto bid = m_bins[off_itms+i];
+              m_perm[off_itms + counts[nbins*j+bid]++] = i;
+
+              /*
               if ((i >= nreal) && (pTypeArr[i] <= type)) {
                   auto bid = m_bins[off_itms+i];
                   m_perm[off_itms + counts[nbins*j+bid]++] = i;
@@ -652,6 +689,7 @@ public:
                   auto bid = m_bins[off_itms+i];
                   m_perm[off_itms + counts[nbins*j+bid]++] = i;
               }
+              */
               
             }
           }
@@ -660,13 +698,19 @@ public:
         }
 
         /*
+        int val1(20482), val2(30105);
         int cnt1(0), cnt2(0);
-        for (int i(0); i<nreal; ++i) {
+        for (int i(0); i<nitems; ++i) {
             if (pTypeArr[i] == 0) ++cnt1;
             if (pTypeArr[i] == 1) ++cnt2;
+
+            if (i==val1) amrex::Print() << i << ' ' << pTypeArr[i] << "\n";
+            if (i==val2) amrex::Print() << i << ' ' << pTypeArr[i] << "\n";
         }
-        amrex::Print() << "Ntype Real: " << cnt1 << ' ' << cnt2 << "\n";
+        amrex::Print() << "Ntype Real: " << cnt1 << ' ' << cnt2 << ' ' << off_bins << ' ' << tot_bins << ' ' 
+                       << m_offsets[off_bins-1] << ' ' << m_offsets[tot_bins-1] << "\n";
         */
+        
     }
 //
 //=================================================================================================================
