@@ -467,7 +467,16 @@ public:
 
 // AML
 //=================================================================================================================
-//   
+//
+     template <typename N, typename M, typename F>
+    void buildPoly (N nitems, N nreal, T const* v, M& pTypeArr,
+                    const int ntype,
+                    Gpu::DeviceVector<int> nbins_v,
+                    F&& f)
+    {
+        buildPoly (BinPolicy::OpenMP, nitems, nreal, v, pTypeArr, ntype, nbins_v, f);
+    }
+    
     template <typename N, typename M, typename F>
     void buildPoly (N nitems, N nreal, T const* v, M& pTypeArr,
                     const int ntype,
@@ -599,10 +608,24 @@ public:
                   ++counts[nbins*j+m_bins[i+off_itms]];
               }
               */
-              
+
+              /*
               if ((i <  nreal) && (pTypeArr[i] != type)) continue;
               if ((i >= nreal) && (pTypeArr[i]  > type)) continue;
               m_bins[i+off_itms] = f(v[i],type);
+              ++counts[nbins*j+m_bins[i+off_itms]];
+              */
+
+              m_bins[i+off_itms] = f(v[i],i,type);
+              int test = f(v[i],i,type);
+              if (test <  0 ||
+                  test >= tot_bins ) {
+                  amrex::Print() << "CYCLE: " << i << ' '
+                                 << type << ' '
+                                 << test << "\n";
+
+              }
+              if (m_bins[i+off_itms] < 0) continue;
               ++counts[nbins*j+m_bins[i+off_itms]];
 
               /*
@@ -663,7 +686,7 @@ public:
               m_perm[off_itms + counts[nbins*j+bid]++] = i;
               */
 
-                /*
+              /*
               if (i <  nreal){
                   if (pTypeArr[i] != type) continue;
                   auto bid = m_bins[off_itms+i];
@@ -674,10 +697,16 @@ public:
                   m_perm[off_itms + counts[nbins*j+bid]++] = i;
               }
               */
-                
+
+              /*
               if ((i <  nreal) && (pTypeArr[i] != type)) continue;
               if ((i >= nreal) && (pTypeArr[i]  > type)) continue;
               auto bid = m_bins[off_itms+i];
+              m_perm[off_itms + counts[nbins*j+bid]++] = i;
+              */
+
+              auto bid = m_bins[off_itms+i];
+              if (bid< 0) continue;
               m_perm[off_itms + counts[nbins*j+bid]++] = i;
 
               /*
