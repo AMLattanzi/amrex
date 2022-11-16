@@ -469,72 +469,101 @@ public:
 //=================================================================================================================
 //
      template <typename N, typename M, typename F>
-    void buildPoly (N nitems, N nreal, T const* v, M& pTypeArr,
-                    const int ntype,
-                    Gpu::DeviceVector<int> nbins_v,
-                    F&& f)
+    void buildPoly (N nitems, T const* v, M& pTypeArr,
+                    int nbins, F&& f)
     {
-        buildPoly (BinPolicy::OpenMP, nitems, nreal, v, pTypeArr, ntype, nbins_v, f);
-    }
-    
-    template <typename N, typename M, typename F>
-    void buildPoly (N nitems, N nreal, T const* v, M& pTypeArr,
-                    const int ntype,
-                    Gpu::DeviceVector<int> nbins_v,
-                    Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> dxi_v,
-                    Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> plo_v,
-                    Gpu::DeviceVector<Dim3> lo_v,
-                    Gpu::DeviceVector<Dim3> hi_v,
-                    F&& f)
-    {
-        buildPoly(BinPolicy::Default, nitems, nreal, v, pTypeArr, ntype, nbins_v,
-                dxi_v, plo_v, lo_v, hi_v, std::forward<F>(f));
-    }
-    
-    template <typename N, typename M, typename F>
-    void buildPoly (BinPolicy::OpenMPBinPolicy,
-                    N nitems, N nreal, T const* v, M& pTypeArr,
-                    const int ntype,
-                    Gpu::DeviceVector<int> nbins_v,
-                    Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> dxi_v,
-                    Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> plo_v,
-                    Gpu::DeviceVector<Dim3> lo_v,
-                    Gpu::DeviceVector<Dim3> hi_v,
-                    F&& f)
-    {
-        auto hi_p = hi_v.data();
-        auto lo_p = lo_v.data();
-        
-        buildPoly(BinPolicy::OpenMP, nitems, nreal, v, pTypeArr, ntype, nbins_v,
-        [=] (const T& t, const int type) noexcept
-        {
-          auto iv  = f(t,type);
-          auto iv3 = iv.dim3();
-          int nx   = hi_p[type].x-lo_p[type].x+1;
-          int ny   = hi_p[type].y-lo_p[type].y+1;
-          int nz   = hi_p[type].z-lo_p[type].z+1;
-          index_type uix = amrex::min(nx-1,amrex::max(0,iv3.x));
-          index_type uiy = amrex::min(ny-1,amrex::max(0,iv3.y));
-          index_type uiz = amrex::min(nz-1,amrex::max(0,iv3.z));
-          return (uix * ny + uiy) * nz + uiz;
-        });
+        buildPoly (BinPolicy::OpenMP, nitems, v, pTypeArr, nbins, f);
     }
 
     template <typename N, typename M, typename F>
     void buildPoly (BinPolicy::OpenMPBinPolicy,
-                    N nitems, N nreal, T const* v, M& pTypeArr,
-                    const int ntype,
-                    Gpu::DeviceVector<int> nbins_v,
-                    F&& f)
+                    N nitems, T const* v, M& pTypeArr,
+                    int nbins, F&& f)
+      {
+        BL_PROFILE("DenseBins<T>::buildOpenMP");
+        
+        amrex::Print() << "NBINS: " << nbins << "\n";
+        
+        m_items = v;
+
+        m_bins.resize(nitems);
+        m_perm.resize(nitems);
+
+        int nchunks = OpenMP::get_max_threads();
+        int chunksize = nitems / nchunks;
+        auto counts = (index_type*)(The_Arena()->alloc(nchunks*nbins*sizeof(index_type)));
+        for (int i = 0; i < nbins*nchunks; ++i) { counts[i] = 0;}
+
+        m_counts.resize(0);
+        m_counts.resize(nbins+1, 0);
+
+        m_offsets.resize(0);
+        m_offsets.resize(nbins+1);
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel for
+#endif
+        for (int j = 0; j < nchunks; ++j) {
+            int istart = j*chunksize;
+            int istop = (j == nchunks-1) ? nitems : (j+1)*chunksize;
+            for (int i = istart; i < istop; ++i) {
+              m_bins[i] = f(v[i],pTypeArr[i]);
+                ++counts[nbins*j+m_bins[i]];
+            }
+        }
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel for
+#endif
+        for (int i = 0; i < nbins; ++i) {
+            index_type total = 0;
+            for (int j = 0; j < nchunks; ++j) {
+                auto tmp = counts[nbins*j+i];
+                counts[nbins*j+i] = total;
+                total += tmp;
+            }
+            m_counts[i] = total;
+        }
+
+        // note - this part has to be serial
+        m_offsets[0] = 0;
+        for (int i = 0; i < nbins; ++i) {m_offsets[i+1] = m_offsets[i] + m_counts[i];}
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel for
+#endif
+        for (int i = 0; i < nbins; ++i) {
+            for (int j = 0; j < nchunks; ++j) {
+                counts[nbins*j+i] += m_offsets[i];
+            }
+        }
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel for
+#endif
+        for (int j = 0; j < nchunks; ++j) {
+            int istart = j*chunksize;
+            int istop = (j == nchunks-1) ? nitems : (j+1)*chunksize;
+            for (int i = istart; i < istop; ++i) {
+                auto bid = m_bins[i];
+                m_perm[counts[nbins*j+bid]++] = i;
+            }
+        }
+
+        The_Arena()->free(counts);
+
+        amrex::Print() << "CLEARED DB...\n";
+    }
+    /*
     {   
         BL_PROFILE("DenseBinsPoly<T>::buildOpenMP");  
         
         m_items = v;
 
-        /*
-        amrex::Print() << "DENSE BINS: " << nitems << ' ' << nreal << ' '
-                       << pTypeArr[20482] << '-' << pTypeArr[30105] << "\n";
-        */
+        
+        //amrex::Print() << "DENSE BINS: " << nitems << ' ' << nreal << ' '
+        //               << pTypeArr[20482] << '-' << pTypeArr[30105] << "\n";
+        
 
            m_bins.resize(0);
            m_perm.resize(0);
@@ -591,30 +620,6 @@ public:
             int istart = j*chunksize;
             int istop = (j == nchunks-1) ? nitems : (j+1)*chunksize;
             for (int i = istart; i < istop; ++i) {
-              /*
-              if (pTypeArr[i] != type) continue;
-              m_bins[i+off_itms] = f(v[i],type);
-              ++counts[nbins*j+m_bins[i+off_itms]];
-              */
-
-              /*
-              if (i <  nreal){
-                  if (pTypeArr[i] != type) continue;
-                  m_bins[i+off_itms] = f(v[i],type);
-                  ++counts[nbins*j+m_bins[i+off_itms]];
-              } else {
-                  if (pTypeArr[i] > type) continue;
-                  m_bins[i+off_itms] = f(v[i],type);
-                  ++counts[nbins*j+m_bins[i+off_itms]];
-              }
-              */
-
-              /*
-              if ((i <  nreal) && (pTypeArr[i] != type)) continue;
-              if ((i >= nreal) && (pTypeArr[i]  > type)) continue;
-              m_bins[i+off_itms] = f(v[i],type);
-              ++counts[nbins*j+m_bins[i+off_itms]];
-              */
 
               m_bins[i+off_itms] = f(v[i],i,type);
               int test = f(v[i],i,type);
@@ -627,17 +632,6 @@ public:
               }
               if (m_bins[i+off_itms] < 0) continue;
               ++counts[nbins*j+m_bins[i+off_itms]];
-
-              /*
-              if ((i >= nreal) && (pTypeArr[i] <= type)) {
-                  m_bins[i+off_itms] = f(v[i],type);
-                  ++counts[nbins*j+m_bins[i+off_itms]];
-              } else {               
-                  if (pTypeArr[i] != type) continue;
-                  m_bins[i+off_itms] = f(v[i],type);
-                  ++counts[nbins*j+m_bins[i+off_itms]];
-              }
-              */
               
             }
           }
@@ -680,67 +674,17 @@ public:
             int istart = j*chunksize;
             int istop = (j == nchunks-1) ? nitems : (j+1)*chunksize;
             for (int i = istart; i < istop; ++i) {
-              /*
-              if (pTypeArr[i] != type) continue;
-              auto bid = m_bins[off_itms+i];
-              m_perm[off_itms + counts[nbins*j+bid]++] = i;
-              */
-
-              /*
-              if (i <  nreal){
-                  if (pTypeArr[i] != type) continue;
-                  auto bid = m_bins[off_itms+i];
-                  m_perm[off_itms + counts[nbins*j+bid]++] = i;
-              } else {
-                  if (pTypeArr[i] > type) continue;
-                  auto bid = m_bins[off_itms+i];
-                  m_perm[off_itms + counts[nbins*j+bid]++] = i;
-              }
-              */
-
-              /*
-              if ((i <  nreal) && (pTypeArr[i] != type)) continue;
-              if ((i >= nreal) && (pTypeArr[i]  > type)) continue;
-              auto bid = m_bins[off_itms+i];
-              m_perm[off_itms + counts[nbins*j+bid]++] = i;
-              */
-
               auto bid = m_bins[off_itms+i];
               if (bid< 0) continue;
               m_perm[off_itms + counts[nbins*j+bid]++] = i;
-
-              /*
-              if ((i >= nreal) && (pTypeArr[i] <= type)) {
-                  auto bid = m_bins[off_itms+i];
-                  m_perm[off_itms + counts[nbins*j+bid]++] = i;
-              } else {
-                  if (pTypeArr[i] != type) continue;
-                  auto bid = m_bins[off_itms+i];
-                  m_perm[off_itms + counts[nbins*j+bid]++] = i;
-              }
-              */
               
             }
           }
 
           The_Arena()->free(counts);
         }
-
-        /*
-        int val1(20482), val2(30105);
-        int cnt1(0), cnt2(0);
-        for (int i(0); i<nitems; ++i) {
-            if (pTypeArr[i] == 0) ++cnt1;
-            if (pTypeArr[i] == 1) ++cnt2;
-
-            if (i==val1) amrex::Print() << i << ' ' << pTypeArr[i] << "\n";
-            if (i==val2) amrex::Print() << i << ' ' << pTypeArr[i] << "\n";
-        }
-        amrex::Print() << "Ntype Real: " << cnt1 << ' ' << cnt2 << ' ' << off_bins << ' ' << tot_bins << ' ' 
-                       << m_offsets[off_bins-1] << ' ' << m_offsets[tot_bins-1] << "\n";
-        */
-        
     }
+    */
 //
 //=================================================================================================================
 //

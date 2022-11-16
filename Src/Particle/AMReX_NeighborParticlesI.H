@@ -887,8 +887,8 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
             Box bx = pti.tilebox();
 
             // Loop grids from smallest->largest
-            Gpu::DeviceVector<int> off_bins_v(ntype);
-            Gpu::DeviceVector<int> nbins_v(ntype);
+            Gpu::DeviceVector<int> off_bins_v(ntype+1,0);
+            Gpu::DeviceVector<int> nbins_v(ntype+1,0);
             Gpu::DeviceVector<Dim3> lo_v(ntype);
             Gpu::DeviceVector<Dim3> hi_v(ntype);
             Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> dxi_v(ntype);
@@ -943,13 +943,22 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
 
               Gpu::exclusive_scan(nbins_v.begin(), nbins_v.end(), off_bins_v.begin());
 
+              amrex::Print() << "OFFSETS: "
+                             << off_bins_v[0] << ' '
+                             << off_bins_v[1] << ' '
+                             << off_bins_v[2] << "\n";
+
               m_neighbor_list[lev][index].buildPoly(ptile, pTypeArr, ntype,
                                                     off_bins_v, nbins_v, dxi_v, plo_v, lo_v, hi_v,
                                                     std::forward<CheckPair>(check_pair), 1);
 
+              amrex::Print() << "BACK IN NPI...\n";
+              amrex::Print() << "NP CHK: " << m_neighbor_list[lev][index].numParticles() << "\n";
+
+              
               // DEBUG: Sort the list
               const auto& offset = m_neighbor_list[lev][index].GetOffsets();
-              auto& nlist  = m_neighbor_list[lev][index].GetList();
+              auto& nlist        = m_neighbor_list[lev][index].GetList();
               int npar = offset.size() - 1;
               for (int i = 0; i < npar; ++i) {
 
@@ -970,6 +979,10 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
                       ++k;
                   }
               }
+              
+              
+              amrex::Print() << "SORTED NL. NOW DYING...\n";
+              exit(0);
             
 #ifndef AMREX_USE_GPU
 
