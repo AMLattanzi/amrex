@@ -839,7 +839,7 @@ template <class CheckPair>
 void
 NeighborParticleContainer<NStructReal, NStructInt, NArrayReal, NArrayInt>::
 buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
-                       int npair, int ntype, int* RefRatio)
+                       int npair, int num_bin_types, int* RefRatio)
 {   
     AMREX_ASSERT(numParticlesOutOfRange(*this, m_num_neighbor_cells) == 0);
 
@@ -880,20 +880,21 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
 
             // Get integer data
             auto& soa     = pti.GetStructOfArrays();
-            auto pTypeArr = soa.GetIntData(typeInd);
+            auto  TypeVec = soa.GetIntData(typeInd);
+            int*  bin_type_array = TypeVec.data();
                 
             if (ptile.numParticles() == 0) continue;
 
             Box bx = pti.tilebox();
 
             // Loop grids from smallest->largest
-            Gpu::DeviceVector<int> off_bins_v(ntype+1,0);
-            Gpu::DeviceVector<int> nbins_v(ntype+1,0);
-            Gpu::DeviceVector<Dim3> lo_v(ntype);
-            Gpu::DeviceVector<Dim3> hi_v(ntype);
-            Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> dxi_v(ntype);
-            Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> plo_v(ntype);            
-              for (int type(0); type<ntype; ++type) {    
+            Gpu::DeviceVector<int> off_bins_v(num_bin_types+1,0);
+            Gpu::DeviceVector<int> nbins_v(num_bin_types+1,0);
+            Gpu::DeviceVector<Dim3> lo_v(num_bin_types);
+            Gpu::DeviceVector<Dim3> hi_v(num_bin_types);
+            Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> dxi_v(num_bin_types);
+            Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> plo_v(num_bin_types);            
+              for (int type(0); type<num_bin_types; ++type) {    
                 // Domain, RB, Coord, Per
                 Box dom = geom.Domain();                    
                 const Real* plo = geom.ProbLo();
@@ -948,9 +949,10 @@ buildPolyNeighborList (CheckPair&& check_pair, bool /*sort*/, int typeInd,
                              << off_bins_v[1] << ' '
                              << off_bins_v[2] << "\n";
 
-              m_neighbor_list[lev][index].buildPoly(ptile, pTypeArr, ntype,
-                                                    off_bins_v, nbins_v, dxi_v, plo_v, lo_v, hi_v,
-                                                    std::forward<CheckPair>(check_pair), 1);
+              m_neighbor_list[lev][index].buildPoly(ptile, off_bins_v, nbins_v,
+                                                    dxi_v, plo_v, lo_v, hi_v,
+                                                    std::forward<CheckPair>(check_pair),
+                                                    bin_type_array, num_bin_types, 1);
 
               amrex::Print() << "BACK IN NPI...\n";
               amrex::Print() << "NP CHK: " << m_neighbor_list[lev][index].numParticles() << "\n";

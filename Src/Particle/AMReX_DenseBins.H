@@ -468,16 +468,18 @@ public:
 // AML
 //=================================================================================================================
 //
-     template <typename N, typename M, typename F>
-    void buildPoly (N nitems, T const* v, M& pTypeArr,
+     template <typename N, typename F>
+    void buildPoly (N nitems, T const* v,
+                    int* bin_type_array,
                     int nbins, F&& f)
     {
-        buildPoly (BinPolicy::OpenMP, nitems, v, pTypeArr, nbins, f);
+        buildPoly (BinPolicy::OpenMP, nitems, v, bin_type_array, nbins, f);
     }
 
-    template <typename N, typename M, typename F>
+    template <typename N, typename F>
     void buildPoly (BinPolicy::OpenMPBinPolicy,
-                    N nitems, T const* v, M& pTypeArr,
+                    N nitems, T const* v,
+                    int* bin_type_array,
                     int nbins, F&& f)
       {
         BL_PROFILE("DenseBins<T>::buildOpenMP");
@@ -507,7 +509,8 @@ public:
             int istart = j*chunksize;
             int istop = (j == nchunks-1) ? nitems : (j+1)*chunksize;
             for (int i = istart; i < istop; ++i) {
-              m_bins[i] = f(v[i],pTypeArr[i]);
+                auto type = bin_type_array ? bin_type_array[i] : 0;
+                m_bins[i] = f(v[i],type);
                 ++counts[nbins*j+m_bins[i]];
             }
         }

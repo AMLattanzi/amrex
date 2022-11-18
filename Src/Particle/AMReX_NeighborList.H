@@ -397,29 +397,36 @@ public:
 // AML
 //=================================================================================================================
 //
-    template <class PTile, class CheckPair, typename M>
-    void buildPoly (PTile& ptile, M& pTypeArr, const int ntype,
+    template <class PTile, class CheckPair>
+    void buildPoly (PTile& ptile,
                     Gpu::DeviceVector<int> off_bins_v,
                     Gpu::DeviceVector<int> nbins_v,
                     Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> dxi_v,
                     Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> plo_v,
                     Gpu::DeviceVector<Dim3> lo_v,
                     Gpu::DeviceVector<Dim3> hi_v,
-                    CheckPair&& check_pair, int num_cells=1)
+                    CheckPair&& check_pair,
+                    int* bin_type_array=nullptr,
+                    int  num_bin_types=0,
+                    int  num_cells=1)
     {
-      buildPoly(ptile, ptile, pTypeArr, ntype,
-                off_bins_v, nbins_v, dxi_v, plo_v, lo_v, hi_v, check_pair, num_cells);
+      buildPoly(ptile, ptile, off_bins_v, nbins_v, dxi_v, plo_v, lo_v, hi_v,
+                check_pair, bin_type_array, num_bin_types, num_cells);
     }
 
-    template <class SrcTile, class TargetTile, class CheckPair, typename M>
-    void buildPoly (SrcTile& src_tile, TargetTile& target_tile, M& pTypeArr, const int ntype,
+    template <class SrcTile, class TargetTile, class CheckPair>
+    void buildPoly (SrcTile& src_tile,
+                    TargetTile& target_tile,
                     Gpu::DeviceVector<int> off_bins_v,
                     Gpu::DeviceVector<int> nbins_v,
                     Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> dxi_v,
                     Gpu::DeviceVector<GpuArray<Real,AMREX_SPACEDIM>> plo_v,
                     Gpu::DeviceVector<Dim3> lo_v,
                     Gpu::DeviceVector<Dim3> hi_v,
-                    CheckPair&& check_pair, int num_cells=1)
+                    CheckPair&& check_pair,
+                    int* bin_type_array=nullptr,
+                    int  num_bin_types=0,
+                    int  num_cells=1)
     {   
         BL_PROFILE("NeighborList::buildPoly()");
 
@@ -444,7 +451,7 @@ public:
         auto  hi_p      =  hi_v.data();
 
         TestOperator to(np_real, off_bins_p, dxi_p, plo_p, lo_p, hi_p);
-        m_bins.buildPoly(np_total, pstruct_ptr, pTypeArr, off_bins_v.back(), to);
+        m_bins.buildPoly(np_total, pstruct_ptr, bin_type_array, off_bins_v.back(), to);
         
         
         // First pass - count the number of neighbors for each particle
@@ -466,9 +473,9 @@ public:
         AMREX_FOR_1D ( np_total, i,
         {
             int count    = 0;
-            int type_i   = pTypeArr[i];
+            int type_i   = bin_type_array ? bin_type_array[i] : 0;
             bool ghost_i = (i >= np_real);
-            for (int type(type_i); type<ntype; ++type) {
+            for (int type(type_i); type<num_bin_types; ++type) {
               int off_bins = off_bins_p[type];
               
               IntVect iv(AMREX_D_DECL(
@@ -492,7 +499,7 @@ public:
 
                     for (auto p = poffset[index]; p < poffset[index+1]; ++p) {
                       const auto& pid       = pperm[p];
-                      const auto& type_pid  = pTypeArr[pid];
+                      const auto& type_pid  = bin_type_array ? bin_type_array[pid] : 0;
                       const auto  ghost_pid = (pid >= np_real);
                       if (is_same && (pid == i)) continue;
                       if (ghost_i && ghost_pid)  continue;
@@ -503,7 +510,7 @@ public:
                           int imax = amrex::max(type_i,type_pid);
                           int k    = imin - 1;
                           // \Sum_{i=N-k}^{N} (i)
-                          int indx = ntype*(k+1) - (k*(k+1))/2;
+                          int indx = num_bin_types*(k+1) - (k*(k+1))/2;
                           // \Sum_{i=1}^{l} (i)
                           indx += imax - imin;
                           
@@ -551,9 +558,9 @@ public:
         AMREX_FOR_1D ( np_total, i,
         {          
           int n        = 0;
-          int type_i   = pTypeArr[i];
+          int type_i   = bin_type_array ? bin_type_array[i] : 0;
           bool ghost_i = (i >= np_real);
-          for (int type(type_i); type<ntype; ++type) {
+          for (int type(type_i); type<num_bin_types; ++type) {
             int off_bins = off_bins_p[type];
             
             IntVect iv(AMREX_D_DECL(
@@ -576,8 +583,8 @@ public:
                   int index = (ii * ny + jj) * nz + kk + off_bins;
                   
                   for (auto p = poffset[index]; p < poffset[index+1]; ++p) {
-                    const auto& pid      = pperm[p];                    
-                    const auto& type_pid = pTypeArr[pid];
+                    const auto& pid       = pperm[p];                    
+                    const auto& type_pid  = bin_type_array ? bin_type_array[pid] : 0;
                     const auto  ghost_pid = (pid >= np_real);
                     if (is_same && (pid == i)) continue;
                     if (ghost_i && ghost_pid)  continue;
@@ -588,7 +595,7 @@ public:
                         int imax = amrex::max(type_i,type_pid);
                         int k    = imin - 1;
                         // \Sum_{i=N-k}^{N} (i)
-                        int indx = ntype*(k+1) - (k*(k+1))/2;
+                        int indx = num_bin_types*(k+1) - (k*(k+1))/2;
                         // \Sum_{i=1}^{l} (i)
                         indx += imax - imin;                    
                         if (call_check_poly_pair(check_pair,
