@@ -51,7 +51,7 @@ namespace amrex
                           const Vector<MF*>& smf, const Vector<Real>& stime,
                           int scomp, int dcomp, int ncomp,
                           const Geometry& geom,
-                          BC& physbcf, int bcfcomp);
+                          BC& physbcf, int bcfcomp, bool smf_ghost=false);
 
     template <typename MF, typename BC>
     std::enable_if_t<IsFabArray<MF>::value>
@@ -59,7 +59,7 @@ namespace amrex
                           const Vector<MF*>& smf, const Vector<Real>& stime,
                           int scomp, int dcomp, int ncomp,
                           const Geometry& geom,
-                          BC& physbcf, int bcfcomp);
+                          BC& physbcf, int bcfcomp,  bool smf_ghost=false);
 
     template <typename MF, typename BC, typename Interp,
               typename PreInterpHook=NullInterpHook<typename MF::FABType::value_type>,
