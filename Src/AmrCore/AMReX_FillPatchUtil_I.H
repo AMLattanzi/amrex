@@ -212,8 +212,22 @@ FillPatchInterp (MF& mf_fine_patch, int fcomp, MF const& mf_crse_patch, int ccom
             auto& dfab = mf_fine_patch[mfi];
             Box const& dbx = amrex::grow(mfi.validbox(),ng) & dest_domain;
 
+            // Make dbx coincident in nodal direction
+            IndexType ixt = mf_fine_patch.ixType();
+            const int* lo = dbx.loVect();
+            const int* hi = dbx.hiVect();
+            IntVect glo(0), ghi(0);
+            for (int idim(0); idim < AMREX_SPACEDIM; ++idim) {
+              int rlo = lo[idim]%ratio[idim];
+              int rhi = hi[idim]%ratio[idim];
+              glo[idim] = lo[idim]; ghi[idim] = hi[idim];
+              if (rlo>0 && ixt[idim]>0) glo[idim] = lo[idim] - rlo;
+              if (rhi>0 && ixt[idim]>0) ghi[idim] = hi[idim] - rhi + ratio[idim];
+            }
+            Box dbx2(glo,ghi,ixt);
+
             amrex::setBC(sbx,cdomain,bcscomp,0,ncomp,bcs,bcr);
-            mapper->interp(sfab, ccomp, dfab, fcomp, ncomp, dbx, ratio,
+            mapper->interp(sfab, ccomp, dfab, fcomp, ncomp, dbx2, ratio,
                            cgeom, fgeom, bcr, idummy, idummy, RunOn::Gpu);
         }
     }
